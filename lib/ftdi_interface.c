@@ -10,46 +10,44 @@ struct ftdi_context *ftdi_open (struct ftdi_context *ftdi)
    int ret;
    struct ftdi_version_info version;
 
-   // Print libftdi info
+   /* print libftdi info */
    version = ftdi_get_library_version ();
    printf ("INFO: Initialized libftdi %s (major: %d, minor: %d, micro: %d, snapshot ver: %s)\n",
             version.version_str, version.major, version.minor, version.micro, version.snapshot_str);
    
-   // Allocate a new FTDI context structure
+   /* allocate a new ftdi context structure */
    if ((ftdi = ftdi_new ()) == 0)
    {
       fprintf (stderr, "ERROR: failed to initialise ftdi structure\n");
       exit (EXIT_FAILURE);
    }
    
-   // Set Interface A
+   /* set Interface A */
    if ((ret = ftdi_set_interface (ftdi, INTERFACE_A)) < 0)
       ftdi_exit (ftdi, "ERROR: Unable to set interface: %d (%s)\n", ret);
    
-   // Open USB connection and connect to FT2232H
+   /* open USB connection and connect to ft2232h */
    if ((ret = ftdi_usb_open (ftdi, 0x0403, 0x6010)) < 0)
       ftdi_exit (ftdi, "ERROR: Unable to open ftdi device: %d (%s)\n", ret);
    
-   // Reset FTDI device    ??? needed?
+   /* reset usb parameters */
    if ((ret = ftdi_usb_reset (ftdi)) < 0)
       ftdi_exit (ftdi, "ERROR: Unable to reset ftdi device: %d (%s)\n", ret);
    
-   /*
-   // Set write chunk size
-   if ((ret = ftdi_write_data_set_chunksize (ftdi, 65536)) < 0)
+   /* not needed (yet?) */
+   /* set write chunk size */
+   /*if ((ret = ftdi_write_data_set_chunksize (ftdi, 65536)) < 0)
       ftdi_exit (ftdi, "ERROR: Unable to set write chunk size: %d (%s)\n", ret);
    
-   // Set read chunk size
-   if ((ret = ftdi_read_data_set_chunksize (ftdi, 65536)) < 0)
+   /* set read chunk size */
+   /*if ((ret = ftdi_read_data_set_chunksize (ftdi, 65536)) < 0)
       ftdi_exit (ftdi, "ERROR: Unable to set read chunk size: %d (%s)\n", ret);
-   */
-   /*
-   // Set latency timer
-   if ((ret = ftdi_set_latency_timer (ftdi, 1)) < 0)
-      ftdi_exit (ftdi, "ERROR: Unable to set latency timer: %d (%s)\n", ret);
-   */   
    
-   // AN_114 note
+   /* set latency timer */
+   /*if ((ret = ftdi_set_latency_timer (ftdi, 1)) < 0)
+      ftdi_exit (ftdi, "ERROR: Unable to set latency timer: %d (%s)\n", ret);
+   
+   /* AN_114 note */
    usleep (50000);
    
    return ftdi;
@@ -59,7 +57,7 @@ void ftdi_close (struct ftdi_context *ftdi)
 {
    int ret;
    
-   // Close USB connection
+   /* close usb connection */
    if ((ret = ftdi_usb_close (ftdi)) < 0)
       ftdi_exit (ftdi, "ERROR: Unable to close ftdi device: %d (%s)\n", ret);
    
@@ -84,23 +82,21 @@ int ftdi_write_data_and_check (struct ftdi_context *ftdi, char *buf, int size)
    if ((ret = ftdi_write_data (ftdi, buf, size)) < 0)
       return ret;
    
-   // Save written offset
+   /* save written offset */
    written_offset = ret;
    
-   // Read two bytes
+   /* read two bytes */
    if ((ret = ftdi_read_data (ftdi, rxBuf, 2)) < 0)
       return ret;
    
-   //printf ("-- READ DATA -- : 0x%X 0x%X\n", rxBuf[0], rxBuf[1]);
-   
-   // Check if FTDI received an invalid command
+   /* check if ftdi received an invalid command */
    if (rxBuf[0] == BAD_COMMAND)
    {
       printf ("WARNING: Device received an invalid command: 0x%X\n", rxBuf[1]);
       return 0;
    }
    
-   return written_offset;    // Returns written data offset
+   return written_offset;    /* returns written data offset */
 }
 
 int ftdi_wait_and_read_data (struct ftdi_context *ftdi, unsigned char *buf, int size)

@@ -6,20 +6,20 @@ union ftdi_status
 {
    struct 
    {
-      unsigned int RSVD : 4;     // Reserved
-      unsigned int CTS  : 1;     // Clear to send
-      unsigned int DTS  : 1;     // Data set ready
-      unsigned int RI   : 1;     // Ring indicator
-      unsigned int RLSD : 1;     // Carrier detect
+      unsigned int RSVD : 4;     /* Reserved */
+      unsigned int CTS  : 1;     /* Clear to send */
+      unsigned int DTS  : 1;     /* Data set ready */
+      unsigned int RI   : 1;     /* Ring indicator */
+      unsigned int RLSD : 1;     /* Carrier detect */
       
-      unsigned int DR   : 1;     // Data ready
-      unsigned int OE   : 1;     // Overrun error
-      unsigned int PE   : 1;     // Parity error
-      unsigned int FE   : 1;     // Framing error
-      unsigned int BI   : 1;     // Break interrupt
-      unsigned int THRE : 1;     // Transmitter holding register
-      unsigned int TEMT : 1;     // Transmitter buffer empty
-      unsigned int RCVR : 1;     // Error in RCVR FIFO
+      unsigned int DR   : 1;     /* Data ready */
+      unsigned int OE   : 1;     /* Overrun error */
+      unsigned int PE   : 1;     /* Parity error */
+      unsigned int FE   : 1;     /* Framing error */
+      unsigned int BI   : 1;     /* Break interrupt */
+      unsigned int THRE : 1;     /* Transmitter holding register */
+      unsigned int TEMT : 1;     /* Transmitter buffer empty */
+      unsigned int RCVR : 1;     /* Error in RCVR FIFO */
    };
 
    unsigned short int value;

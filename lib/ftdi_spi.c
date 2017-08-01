@@ -206,7 +206,6 @@ void spi_write_from_file (struct ftdi_context *ftdi, struct spi_context spi, FIL
       else
          offset = 0;
 
-      //printf ("%d\n", i);
       /* buffer may be full: reset its index */
       /* if it's not full, there is no more data to send, so it can be reset in any case */
       i = offset;
