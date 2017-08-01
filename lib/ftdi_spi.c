@@ -201,7 +201,7 @@ void spi_write_from_file (struct ftdi_context *ftdi, struct spi_context spi, FIL
       /* buffer is full or there is no more data to load */
 
       /* write out spi data */
-      if ((ret = ftdi_wait_and_write_data (ftdi, buffer + offset, i - offset)) < 0)
+      if ((ret = ftdi_write_data_and_wait (ftdi, buffer + offset, i - offset)) < 0)
          ftdi_exit (ftdi, "ERROR: Unable to send SPI data: %d (%s)\n", ret);
 
       /* if buffer's last elements are a part of header, these cannot be pushed out 
@@ -236,9 +236,7 @@ void spi_read_to_file (struct ftdi_context *ftdi, struct spi_context spi, FILE *
    int ret;
    
    /* get total frame length */
-   frame_length = (data_length / MAX_SPI_BUF_LENGTH) * HEADER_BLOCK_LENGTH;
-   if (data_length % MAX_SPI_BUF_LENGTH != 0)
-      frame_length += HEADER_BLOCK_LENGTH;
+   frame_length = ceil (data_length / MAX_SPI_BUF_LENGTH) * HEADER_BLOCK_LENGTH;
 
    /* while there are still frames to send */
    while (frame_length)
@@ -285,7 +283,7 @@ void spi_read_to_file (struct ftdi_context *ftdi, struct spi_context spi, FILE *
       }
 
       /* write out spi data */
-      if ((ret = ftdi_write_data (ftdi, buffer + offset, i - offset)) < 0)
+      if ((ret = ftdi_write_data_and_wait (ftdi, buffer + offset, i - offset)) < 0)
          ftdi_exit (ftdi, "ERROR: Unable to send SPI data: %d (%s)\n", ret);
 
       /* if buffer's last elements are a part of header, these cannot be pushed out 
@@ -304,7 +302,7 @@ void spi_read_to_file (struct ftdi_context *ftdi, struct spi_context spi, FILE *
          else
             data_block_length = data_in_buffer_length;
 
-         if ((ret = ftdi_wait_and_read_data (ftdi, file_buffer, data_block_length)) < 0)
+         if ((ret = ftdi_read_data_and_wait (ftdi, file_buffer, data_block_length)) < 0)
             ftdi_exit (ftdi, "ERROR: Unable to read SPI data: %d (%s)\n", ret);
 
          fwrite (file_buffer, sizeof (char), data_block_length, fp);
@@ -383,7 +381,7 @@ void spi_write (struct ftdi_context *ftdi, struct spi_context spi, unsigned char
       /* buffer is full or there is no more data to load */
   
       /* write out spi data */
-      if ((ret = ftdi_wait_and_write_data (ftdi, buffer + offset, i - offset)) < 0)
+      if ((ret = ftdi_write_data_and_wait (ftdi, buffer + offset, i - offset)) < 0)
          ftdi_exit (ftdi, "ERROR: Unable to send SPI data: %d (%s)\n", ret);
 
       /* if buffer's last elements are a part of header, these cannot be pushed out 
@@ -464,7 +462,7 @@ void spi_read (struct ftdi_context *ftdi, struct spi_context spi, unsigned char 
       }
 
       /* write out spi data */
-      if ((ret = ftdi_wait_and_write_data (ftdi, buffer + offset, i - offset)) < 0)
+      if ((ret = ftdi_write_data_and_wait (ftdi, buffer + offset, i - offset)) < 0)
          ftdi_exit (ftdi, "ERROR: Unable to send SPI data: %d (%s)\n", ret);
 
       /* if buffer's last elements are a part of header, these cannot be pushed out 
@@ -476,7 +474,7 @@ void spi_read (struct ftdi_context *ftdi, struct spi_context spi, unsigned char 
       i = offset;
 
       /* read data */
-      if ((ret = ftdi_wait_and_read_data (ftdi, data, data_in_buffer_length)) < 0)
+      if ((ret = ftdi_read_data_and_wait (ftdi, data, data_in_buffer_length)) < 0)
             ftdi_exit (ftdi, "ERROR: Unable to read SPI data: %d (%s)\n", ret);
 
       data += data_in_buffer_length;
