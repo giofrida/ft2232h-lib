@@ -10,6 +10,8 @@
 struct spi_context spi_init (struct ftdi_context *ftdi,
                              int clock_idle, int clock_phase, unsigned short int clock_divisor, int clock_divide_by_5, int write_lsb_first, int read_lsb_first, int mosi_idle, int miso_idle)
 {
+   /* Initialises spi communication on ftdi device, using user-defined parameters.
+      Returns initialised spi context structure. */
    int ret;
    unsigned char buf[3];
    struct spi_context spi;
@@ -91,6 +93,7 @@ struct spi_context spi_init (struct ftdi_context *ftdi,
 
 void spi_open (struct ftdi_context *ftdi, struct spi_context spi)
 {
+   /* Opens spi connection by setting CS# line low. */
    unsigned char buf[3];
    int ret;
    
@@ -111,6 +114,7 @@ void spi_open (struct ftdi_context *ftdi, struct spi_context spi)
 
 void spi_close (struct ftdi_context *ftdi, struct spi_context spi)
 {
+   /* Closes spi connection by setting CS# line high. */
    unsigned char buf[3];
    int ret;
 
@@ -129,7 +133,8 @@ void spi_close (struct ftdi_context *ftdi, struct spi_context spi)
 
 void spi_write_from_file (struct ftdi_context *ftdi, struct spi_context spi, FILE *fp, int data_length)
 {
-   unsigned char buffer [MAX_INTERNAL_BUF_LENGTH];       /* transmit buffer */
+   /* Sends data read from a file via spi on ftdi device. */
+   unsigned char buffer[MAX_INTERNAL_BUF_LENGTH];       /* transmit buffer */
    
    int data_block_length;
    int i = 0;
@@ -216,6 +221,7 @@ void spi_write_from_file (struct ftdi_context *ftdi, struct spi_context spi, FIL
 
 void spi_read_to_file (struct ftdi_context *ftdi, struct spi_context spi, FILE *fp, int data_length)
 {
+   /* Reads data via spi from ftdi device and saves them in a file. */
    const int HEADER_BLOCK_LENGTH = 3;                    /* length of header for one block of data */
    
    unsigned char file_buffer[MAX_SPI_BUF_LENGTH];        /* buffer used to store data before writing them out in a file */
@@ -311,7 +317,8 @@ void spi_read_to_file (struct ftdi_context *ftdi, struct spi_context spi, FILE *
 
 void spi_write (struct ftdi_context *ftdi, struct spi_context spi, unsigned char *data, int data_length)
 {
-   unsigned char buffer [MAX_INTERNAL_BUF_LENGTH];       /* transmit buffer */
+   /* Sends data via spi on ftdi device. */
+   unsigned char buffer[MAX_INTERNAL_BUF_LENGTH];       /* transmit buffer */
    
    int data_block_length;
    int i = 0;
@@ -396,6 +403,7 @@ void spi_write (struct ftdi_context *ftdi, struct spi_context spi, unsigned char
 
 void spi_read (struct ftdi_context *ftdi, struct spi_context spi, unsigned char *data, int data_length)
 {
+   /* Reads data via spi from ftdi device. */
    const int HEADER_BLOCK_LENGTH = 3;                    /* length of header for one block of data */
 
    unsigned char buffer[MAX_INTERNAL_BUF_LENGTH];        /* transmit buffer */
@@ -480,7 +488,7 @@ void spi_read (struct ftdi_context *ftdi, struct spi_context spi, unsigned char 
 
 void spi_print_clk_frequency (struct spi_context spi)
 {
-   /* Prints selected SPI clock frequency to the terminal screen */
+   /* Prints selected spi clock frequency to the terminal screen */
    double clock_frequency;
    char prefix = '\0';
    

@@ -25,13 +25,13 @@ union ftdi_status
    unsigned short int value;
 };
 
-int ftdi_write_data_and_check (struct ftdi_context *ftdi, char *buf, int size);
 struct ftdi_context *ftdi_open (struct ftdi_context *ftdi);
 void ftdi_close (struct ftdi_context *ftdi);
 void ftdi_exit (struct ftdi_context *ftdi, char *error_string, int error_code);
 
-int ftdi_wait_and_read_data (struct ftdi_context *ftdi, unsigned char *buf, int size);
-int ftdi_wait_and_write_data (struct ftdi_context *ftdi, unsigned char *buf, int size);
+int ftdi_write_data_and_check (struct ftdi_context *ftdi, char *buf, int size);
+int ftdi_read_data_and_wait (struct ftdi_context *ftdi, unsigned char *buf, int size);
+int ftdi_write_data_and_wait (struct ftdi_context *ftdi, unsigned char *buf, int size);
 
 int is_tx_buffer_empty (struct ftdi_context *ftdi, union ftdi_status *status);
 int is_tx_error (struct ftdi_context *ftdi, union ftdi_status *status);

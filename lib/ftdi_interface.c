@@ -7,6 +7,9 @@
 
 struct ftdi_context *ftdi_open (struct ftdi_context *ftdi)
 {
+   /* Initialises a new ftdi context structure, as well as all usb parameters required for 
+   ftdi communication.
+   Returns the initialised ftdi structure. */
    int ret;
    struct ftdi_version_info version;
 
@@ -55,6 +58,7 @@ struct ftdi_context *ftdi_open (struct ftdi_context *ftdi)
 
 void ftdi_close (struct ftdi_context *ftdi)
 {
+   /* Close communication with ftdi device. */
    int ret;
    
    /* close usb connection */
@@ -68,6 +72,7 @@ void ftdi_close (struct ftdi_context *ftdi)
 
 void ftdi_exit (struct ftdi_context *ftdi, char *error_string, int error_code)
 {
+   /* Auxiliary function used to abort program execution if a communication error is received. */
    fprintf (stderr, error_string, error_code, ftdi_get_error_string (ftdi));
    
    ftdi_free (ftdi);
@@ -76,6 +81,8 @@ void ftdi_exit (struct ftdi_context *ftdi, char *error_string, int error_code)
 
 int ftdi_write_data_and_check (struct ftdi_context *ftdi, char *buf, int size)
 {
+   /* Write data (command) to ftdi device, then check if ftdi device received a bad command or not.
+      Returns 0 on bad command received, < 0 if communication error, > 0 if success (offset). */
    int ret, written_offset;
    unsigned char rxBuf[2];
    
@@ -99,8 +106,10 @@ int ftdi_write_data_and_check (struct ftdi_context *ftdi, char *buf, int size)
    return written_offset;    /* returns written data offset */
 }
 
-int ftdi_wait_and_read_data (struct ftdi_context *ftdi, unsigned char *buf, int size)
+int ftdi_read_data_and_check (struct ftdi_context *ftdi, unsigned char *buf, int size)
 {
+   /* Read data from ftdi device and wait if data is not available yet.
+      Returns < 0 if communication error, > 0 if success (read data size). */
    unsigned int data = size;
    int ret;
 
@@ -116,8 +125,10 @@ int ftdi_wait_and_read_data (struct ftdi_context *ftdi, unsigned char *buf, int 
    return size;
 }
 
-int ftdi_wait_and_write_data (struct ftdi_context *ftdi, unsigned char *buf, int size)
+int ftdi_write_data_and_check (struct ftdi_context *ftdi, unsigned char *buf, int size)
 {
+   /* Write data to ftdi device and wait if data cannot be written yet.
+      Returns < 0 if communication error, > 0 if success (written data size). */
    unsigned int data = size;
    int ret;
 
@@ -136,7 +147,7 @@ int ftdi_wait_and_write_data (struct ftdi_context *ftdi, unsigned char *buf, int
 int is_tx_buffer_empty (struct ftdi_context *ftdi, union ftdi_status *status)
 {
    /* Checks if transmitter buffer is empty.
-   The function returns 1 if empty, 0 if not empty, <0 if cannot poll modem status */
+      Returns 1 if empty, 0 if not empty, <0 if cannot poll modem status. */
    int ret;
    union ftdi_status temp_status;
    
@@ -152,7 +163,7 @@ int is_tx_buffer_empty (struct ftdi_context *ftdi, union ftdi_status *status)
 int is_tx_error (struct ftdi_context *ftdi, union ftdi_status *status)
 {
    /* Checks if any transmission error occured.
-   The function returns 1 if no error occured, 0 if an error occured, <0 if cannot poll modem status */
+      Returns 1 if no error occured, 0 if an error occured, <0 if cannot poll modem status. */
    int ret;
    union ftdi_status temp_status;
 
