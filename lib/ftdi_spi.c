@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <math.h>
 #include <libftdi1\ftdi.h>
 
 #include "ftdi_interface.h"
@@ -236,7 +235,9 @@ void spi_read_to_file (struct ftdi_context *ftdi, struct spi_context spi, FILE *
    int ret;
    
    /* get total frame length */
-   frame_length = ceil (data_length / MAX_SPI_BUF_LENGTH) * HEADER_BLOCK_LENGTH;
+   frame_length = (data_length / MAX_SPI_BUF_LENGTH) * HEADER_BLOCK_LENGTH;
+   if (data_length % MAX_SPI_BUF_LENGTH != 0)
+      frame_length += HEADER_BLOCK_LENGTH;
 
    /* while there are still frames to send */
    while (frame_length)
@@ -415,7 +416,9 @@ void spi_read (struct ftdi_context *ftdi, struct spi_context spi, unsigned char 
    int ret;
 
    /* get total frame length */
-   frame_length = ceil (data_length / MAX_SPI_BUF_LENGTH) * HEADER_BLOCK_LENGTH;
+   frame_length = (data_length / MAX_SPI_BUF_LENGTH) * HEADER_BLOCK_LENGTH;
+   if (data_length % MAX_SPI_BUF_LENGTH != 0)
+      frame_length += HEADER_BLOCK_LENGTH;
 
    /* while there are still frames to send */
    while (frame_length)
