@@ -29,7 +29,7 @@ struct ftdi_context *ftdi_open (struct ftdi_context *ftdi);
 void ftdi_close (struct ftdi_context *ftdi);
 void ftdi_exit (struct ftdi_context *ftdi, char *error_string, int error_code);
 
-int ftdi_write_data_and_check (struct ftdi_context *ftdi, char *buf, int size);
+int ftdi_write_data_and_check (struct ftdi_context *ftdi, unsigned char *buf, int size);
 int ftdi_read_data_and_wait (struct ftdi_context *ftdi, unsigned char *buf, int size);
 int ftdi_write_data_and_wait (struct ftdi_context *ftdi, unsigned char *buf, int size);
 

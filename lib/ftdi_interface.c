@@ -79,7 +79,7 @@ void ftdi_exit (struct ftdi_context *ftdi, char *error_string, int error_code)
    exit (EXIT_FAILURE);
 }
 
-int ftdi_write_data_and_check (struct ftdi_context *ftdi, char *buf, int size)
+int ftdi_write_data_and_check (struct ftdi_context *ftdi, unsigned char *buf, int size)
 {
    /* Write data (command) to ftdi device, then check if ftdi device received a bad command or not.
       Returns 0 on bad command received, < 0 if communication error, > 0 if success (offset). */
@@ -106,9 +106,9 @@ int ftdi_write_data_and_check (struct ftdi_context *ftdi, char *buf, int size)
    return written_offset;    /* returns written data offset */
 }
 
-int ftdi_read_data_and_check (struct ftdi_context *ftdi, unsigned char *buf, int size)
+int ftdi_read_data_and_wait (struct ftdi_context *ftdi, unsigned char *buf, int size)
 {
-   /* Read data from ftdi device and wait if data is not available yet.
+   /* Read data from ftdi device and waits if data is not available yet.
       Returns < 0 if communication error, > 0 if success (read data size). */
    unsigned int data = size;
    int ret;
@@ -125,9 +125,9 @@ int ftdi_read_data_and_check (struct ftdi_context *ftdi, unsigned char *buf, int
    return size;
 }
 
-int ftdi_write_data_and_check (struct ftdi_context *ftdi, unsigned char *buf, int size)
+int ftdi_write_data_and_wait (struct ftdi_context *ftdi, unsigned char *buf, int size)
 {
-   /* Write data to ftdi device and wait if data cannot be written yet.
+   /* Write data to ftdi device and waits if data cannot be written yet.
       Returns < 0 if communication error, > 0 if success (written data size). */
    unsigned int data = size;
    int ret;
