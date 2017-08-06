@@ -1,37 +1,41 @@
-#define BAD_COMMAND 0xFA
+#define FTDI_BAD_COMMAND 0xFA
 
-#define GETBYTE(field, byte) (((field) >> (8 * (byte))) & 0xFF)
+/* Macros */
+#define SETBYTE(field, byte, val) (field) = ((field) & ~(0xFF << 8 * (byte))) | (((val) & 0xFF) << 8 * (byte))
+#define GETBYTE(field, byte) (((field) & (0xFF << 8 * (byte))) >> 8 * (byte))
 
-union ftdi_status
-{
-   struct 
-   {
-      unsigned int RSVD : 4;     /* Reserved */
-      unsigned int CTS  : 1;     /* Clear to send */
-      unsigned int DTS  : 1;     /* Data set ready */
-      unsigned int RI   : 1;     /* Ring indicator */
-      unsigned int RLSD : 1;     /* Carrier detect */
-      
-      unsigned int DR   : 1;     /* Data ready */
-      unsigned int OE   : 1;     /* Overrun error */
-      unsigned int PE   : 1;     /* Parity error */
-      unsigned int FE   : 1;     /* Framing error */
-      unsigned int BI   : 1;     /* Break interrupt */
-      unsigned int THRE : 1;     /* Transmitter holding register */
-      unsigned int TEMT : 1;     /* Transmitter buffer empty */
-      unsigned int RCVR : 1;     /* Error in RCVR FIFO */
-   };
+/* Modem status data structure */
+/* first 4 bits of first byte must be 0 */
+#define CTS  0x1000     /* Clear To Send */
+#define DSR  0x2000     /* Data Set Ready */
+#define RI   0x4000     /* Ring Indicator */
+#define RLSD 0x8000     /* Recieve Line Signal Detect */
 
-   unsigned short int value;
-};
+#define DR   0x0001     /* Data Ready */
+#define OE   0x0002     /* Overrun Error */
+#define PE   0x0004     /* Parity Error */
+#define FE   0x0008     /* Framing Error */
+#define BI   0x0010     /* Break Interrupt */
+#define THRE 0x0020     /* Transmitter Holding REgister */
+#define TEMT 0x0040     /* Transmitter buffer EMpTy */
+#define RCVR 0x0080     /* Error in Receiver FIFO */
 
-struct ftdi_context *ftdi_open (struct ftdi_context *ftdi);
+/* Type redefinition */
+#ifndef FTDI_LIB_TYPES_DEFINED
+typedef uint8_t  byte;
+typedef uint16_t word;
+typedef uint32_t dword;
+#define FTDI_LIB_TYPES_DEFINED
+#endif
+
+/* Function prototypes */
+struct ftdi_context *ftdi_open (void);
 void ftdi_close (struct ftdi_context *ftdi);
 void ftdi_exit (struct ftdi_context *ftdi, char *error_string, int error_code);
 
-int ftdi_write_data_and_check (struct ftdi_context *ftdi, unsigned char *buf, int size);
-int ftdi_read_data_and_wait (struct ftdi_context *ftdi, unsigned char *buf, int size);
-int ftdi_write_data_and_wait (struct ftdi_context *ftdi, unsigned char *buf, int size);
+int ftdi_write_data_and_check (struct ftdi_context *ftdi, byte *buf, int size);
+int ftdi_read_data_and_wait (struct ftdi_context *ftdi, byte *buf, int size);
+int ftdi_write_data_and_wait (struct ftdi_context *ftdi, byte *buf, int size);
 
-int is_tx_buffer_empty (struct ftdi_context *ftdi, union ftdi_status *status);
-int is_tx_error (struct ftdi_context *ftdi, union ftdi_status *status);
+int ftdi_tx_buf_empty (struct ftdi_context *ftdi, word *status);
+int ftdi_tx_error (struct ftdi_context *ftdi, word *status);

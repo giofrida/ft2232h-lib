@@ -3,6 +3,9 @@ set "concat="
 for /f "delims=" %%a in ('dir lib\*.c /B') do (
 	call set concat=%%concat%%lib\%%a 
 )
-@echo on
+set gccargs=-Wall -Wextra %concat% -llibftdi1
 
-gcc -o %~n1.exe %~n1.c %concat% -llibftdi1
+echo Compiling %~n1.c
+echo Arguments: %gccargs%
+
+gcc -o %~dp1%~n1.exe %~dp1%~n1.c %gccargs%
