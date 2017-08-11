@@ -166,6 +166,7 @@ static const char file_type[5][128] = { "Hard disk-like file system with partiti
 void sd_init (struct ftdi_context *ftdi, struct spi_context *spi);
 void sd_reset (struct ftdi_context *ftdi, struct spi_context *spi);
 int sd_recognize (struct ftdi_context *ftdi, struct spi_context *spi);
+time_t time_sync (void);
 
 int sd_get_ocr (struct ftdi_context *ftdi, struct spi_context *spi, dword *ocr);
 int sd_get_cid (struct ftdi_context *ftdi, struct spi_context *spi, struct sd_cid *cid);

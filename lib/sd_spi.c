@@ -5,8 +5,8 @@
 #include <unistd.h>
 #include <libftdi1/ftdi.h>
 
-#include "ftdi_spi.h"
 #include "ftdi_interface.h"
+#include "ftdi_spi.h"
 #include "sd_spi.h"
 
 void sd_init (struct ftdi_context *ftdi, struct spi_context *spi)
@@ -34,8 +34,6 @@ void sd_reset (struct ftdi_context *ftdi, struct spi_context *spi)
 {
    byte r1;
    int ret;
-   
-   /* debug */
    
    /* send CMD0 (GO_IDLE_STATE) command to reset sd card */
    /* send until card does not respond */
@@ -77,11 +75,11 @@ int sd_recognize (struct ftdi_context *ftdi, struct spi_context *spi)
    if (ret <= 0)
    {
       /* send ACMD41 with 0x00000000 as argument */
-      time (&start);
+      start = time_sync ();
       do
       {
-         sd_send_command (ftdi, spi, &r1, CMD55, 0x00000000);
-         ret = sd_send_command (ftdi, spi, &r1, ACMD41, 0x00000000);
+         if ((ret = sd_send_command (ftdi, spi, &r1, CMD55, 0x00000000)) > 0)
+            ret = sd_send_command (ftdi, spi, &r1, ACMD41, 0x00000000);
 
          time (&end);
       /* exit if error or timeout occured or r1 is not equal to 0x01 (in idle state) */
@@ -94,7 +92,7 @@ int sd_recognize (struct ftdi_context *ftdi, struct spi_context *spi)
       }
       /* else */
       
-      time (&start);
+      start = time_sync ();
       do
       {
          ret = sd_send_command (ftdi, spi, &r1, CMD1, 0x00000000);
@@ -112,11 +110,11 @@ int sd_recognize (struct ftdi_context *ftdi, struct spi_context *spi)
    else if (ocr == 0x000001AA)
    {  
       /* send ACMD41 with 0x40000000 as argument */
-      time (&start);
+      start = time_sync ();
       do
       {
-         sd_send_command (ftdi, spi, &r1, CMD55, 0x00000000);
-         ret = sd_send_command (ftdi, spi, &r1, ACMD41, 0x40000000);
+         if ((ret = sd_send_command (ftdi, spi, &r1, CMD55, 0x00000000)) > 0)
+            ret = sd_send_command (ftdi, spi, &r1, ACMD41, 0x40000000);
          
          time (&end);
       /* exit if error or timeout occured or r1 is not equal to 0x01 (in idle state) */
@@ -157,6 +155,21 @@ int sd_recognize (struct ftdi_context *ftdi, struct spi_context *spi)
    exit (EXIT_FAILURE);
 }
 
+time_t time_sync (void)
+{
+   time_t t1, t2;
+   
+   do
+   {
+      time (&t1);
+      do
+      {
+         time (&t2);
+      } while (difftime (t2, t1) < 1);    /* exit if *at least* 1 sec has passed */
+   } while (difftime (t2, t1) > 1);       /* exit if *no more than* 1 sec has passed */
+   
+   return t2;
+}
 
 int sd_get_ocr (struct ftdi_context *ftdi, struct spi_context *spi, dword *ocr)
 {
