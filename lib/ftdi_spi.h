@@ -81,9 +81,7 @@ void spi_print_clk_frequency (struct spi_context *spi);
 double spi_frequency (struct spi_context *spi);
 double spi_clk_period (struct spi_context *spi);
 
-void ftdi_set_bits_low (struct ftdi_context *ftdi, struct spi_context *spi, 
-                                      byte mask, byte level, byte io);
-void ftdi_set_bits_high (struct ftdi_context *ftdi, struct spi_context *spi, 
-                                      byte mask, byte level, byte io);
-byte ftdi_get_bits_low (struct spi_context *spi);
-byte ftdi_get_bits_high (struct spi_context *spi);
+void ftdi_set_bits_low (struct ftdi_context *ftdi, struct spi_context *spi, byte mask, byte level, byte io);
+void ftdi_set_bits_high (struct ftdi_context *ftdi, struct spi_context *spi, byte mask, byte level, byte io);
+byte ftdi_get_bits_low (struct ftdi_context *ftdi, struct spi_context *spi);
+byte ftdi_get_bits_high (struct ftdi_context *ftdi, struct spi_context *spi);

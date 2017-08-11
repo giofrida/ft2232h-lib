@@ -582,12 +582,38 @@ void ftdi_set_bits_high (struct ftdi_context *ftdi, struct spi_context *spi,
    return;
 }
 
-byte ftdi_get_bits_low (struct spi_context *spi)
+byte ftdi_get_bits_low (struct ftdi_context *ftdi, struct spi_context *spi)
 {
-   return spi->low_bits.level;
+   byte buf, level;
+   int ret;
+   
+   /* get bits state */
+   buf = GET_BITS_LOW;
+   
+   if ((ret = ftdi_write_data (ftdi, &buf, 1)) < 0)
+      ftdi_exit (ftdi, "ERROR: Unable to request low bits level: %d (%s)\n", ret);
+   if ((ret = ftdi_read_data (ftdi, &level, 1)) < 0)
+      ftdi_exit (ftdi, "ERROR: Unable to get low bits level: %d (%s)\n", ret);
+   
+   spi->low_bits.level = level;
+     
+   return level;
 }
 
-byte ftdi_get_bits_high (struct spi_context *spi)
+byte ftdi_get_bits_high (struct ftdi_context *ftdi, struct spi_context *spi)
 {
-   return spi->high_bits.level;
+   byte buf, level;
+   int ret;
+   
+   /* get bits state */
+   buf = GET_BITS_HIGH;
+   
+   if ((ret = ftdi_write_data (ftdi, &buf, 1)) < 0)
+      ftdi_exit (ftdi, "ERROR: Unable to request high bits level: %d (%s)\n", ret);
+   if ((ret = ftdi_read_data (ftdi, &level, 1)) < 0)
+      ftdi_exit (ftdi, "ERROR: Unable to get high bits level: %d (%s)\n", ret);
+   
+   spi->high_bits.level = level;
+     
+   return level;
 }
