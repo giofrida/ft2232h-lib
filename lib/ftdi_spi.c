@@ -7,11 +7,25 @@
 #include "ftdi_interface.h"
 #include "ftdi_spi.h"
 
+/** 
+   Initialises SPI communication on FTDI device, using user-defined parameters.
+   
+   @param ftdi pointer to struct ftdi_context
+   
+   @param clock_idle clock idle level (also known as clock polarity, CPOL)
+   @param clock_phase clock phase (CPHA)
+   @param clock_divisor clock divisor value
+   @param clock_divide_by_5 enable clock divide by 5
+   @param mosi_idle MOSI idle level
+   @param write_lsb_first write lsb first
+   @param read_lsb_first read lsb first
+   @param loopback_on internal loopback on
+   
+   @return pointer to initialised spi_context structure  
+*/
 struct spi_context *spi_init (struct ftdi_context *ftdi,
-                             int clock_idle, int clock_phase, word clock_divisor, int clock_divide_by_5, int write_lsb_first, int read_lsb_first, int mosi_idle, int miso_idle, int loopback_on)
+                             int clock_idle, int clock_phase, word clock_divisor, int clock_divide_by_5, int mosi_idle, int write_lsb_first, int read_lsb_first, int loopback_on)
 {
-   /* Initialises spi communication on ftdi device, using user-defined parameters.
-      Returns initialised spi context structure. */
    int ret;
    byte buf[3];
    byte level, io;
@@ -25,10 +39,9 @@ struct spi_context *spi_init (struct ftdi_context *ftdi,
    spi->CPHA = clock_phase & 1;
    spi->CDIV = clock_divisor;
    spi->CDIV5 = clock_divide_by_5 & 1;
+   spi->MOSI_IDLE = mosi_idle & 1;
    spi->WRITE_LSB_FIRST = write_lsb_first & 1;
    spi->READ_LSB_FIRST = read_lsb_first & 1;
-   spi->MOSI_IDLE = mosi_idle & 1;
-   spi->MISO_IDLE = miso_idle & 1;
    spi->LOOPBACK_ON = loopback_on & 1;
 
    /* purge all buffers */
@@ -63,7 +76,6 @@ struct spi_context *spi_init (struct ftdi_context *ftdi,
    /* set port direction and idle values */
    level = (spi->CPOL      ? SCLK : 0) |           /* set port idle values */
            (spi->MOSI_IDLE ? MOSI : 0) | 
-           (spi->MISO_IDLE ? MISO : 0) | 
            CS;
    io = 0x0B;                                     /* GPIOL[3-0]: DC, CS: O, DI: I, DO: O, SK: O */
    
@@ -109,398 +121,253 @@ struct spi_context *spi_init (struct ftdi_context *ftdi,
    return spi;
 }
 
+/** 
+   Opens SPI connection by setting CS# line low. Also, sets MOSI and SCLK lines to their respective idle levels. 
+   
+   @param ftdi pointer to struct ftdi_context
+   @param spi pointer to struct spi_context
+*/
 void spi_open (struct ftdi_context *ftdi, struct spi_context *spi)
 {
-   /* Opens spi connection by setting CS# line low. */
    byte level;
    
-   level = (spi->MOSI_IDLE ? MOSI : 0) |     /* set MISO/MOSI idle values, CS=0 */
-           (spi->MISO_IDLE ? MISO : 0);
+   level = (spi->MOSI_IDLE ? MOSI : 0);       /* set MOSI idle value, CS=0 */
    if (!spi->CPHA)                            /* set clock idle polarity */
       level |= spi->CPOL  ? SCLK : 0;
    else
-      level |= !spi->CPOL ? SCLK : 0;        /* workaround to get SPI mode 1, 3 working (invert clock polarity before writing data) */
+      level |= !spi->CPOL ? SCLK : 0;         /* workaround to get SPI mode 1, 3 working (invert clock polarity before writing data) */
    
-   ftdi_set_bits_low (ftdi, spi, CS|SCLK|MOSI|MISO, level, spi->low_bits.io);
+   ftdi_set_bits_low (ftdi, spi, CS|SCLK|MOSI, level, CS|SCLK|MOSI);
 
    return;
 }
 
+/** 
+   Closes SPI connection by setting CS# line high. Also, sets MOSI and SCLK lines to their respective idle levels. 
+   
+   @param ftdi pointer to struct ftdi_context
+   @param spi pointer to struct spi_context
+*/
 void spi_close (struct ftdi_context *ftdi, struct spi_context *spi)
 {
-   /* Closes spi connection by setting CS# line high. */
    byte level;
 
    level = (spi->CPOL      ? SCLK : 0) | 
-           (spi->MOSI_IDLE ? MOSI : 0) | 
-           (spi->MISO_IDLE ? MISO : 0) | 
+           (spi->MOSI_IDLE ? MOSI : 0) |
            CS;                              /* set port idle values */
            
-   ftdi_set_bits_low (ftdi, spi, CS|SCLK|MOSI|MISO, level, spi->low_bits.io);
+   ftdi_set_bits_low (ftdi, spi, CS|SCLK|MOSI, level, CS|SCLK|MOSI);
    
    return;
 }
 
-void spi_write_from_file (struct ftdi_context *ftdi, struct spi_context *spi, FILE *fp, int data_length)
+/**
+   Sends data read from the file pointed by fp via SPI on FTDI device.
+   
+   @param ftdi pointer to struct ftdi_context
+   @param spi pointer to struct spi_context
+   @param fp pointer to FILE
+   @param size size of data to write
+   
+   @retval <0 if EOF reached before sending out all data
+   @retval >0 on success
+*/
+int spi_write_from_file (struct ftdi_context *ftdi, struct spi_context *spi, FILE *fp, int size)
 {
-   /* Sends data read from a file via spi on ftdi device. */
-   byte buffer[MAX_INTERNAL_BUF_LENGTH];       /* transmit buffer */
-   
-   int data_block_length;
-   int i = 0;
-   
-   int part_of_frame = HEADER_0;
-   int offset = 0;
-
+   byte buf[3];
+   byte file_buf[MAX_SPI_BUF_LENGTH];
+   unsigned int buf_size;
    int ret;
    
-   /* while there are still data to write out */
-   while (data_length)
-   {
-      /* build up transmit buffer */
+   if (size > MAX_SPI_BUF_LENGTH)
+      buf_size = MAX_SPI_BUF_LENGTH;
+   else
+      buf_size = size; 
+   
+   while (size > 0 && fread (file_buf, sizeof (byte), buf_size, fp) == buf_size)
+   {     
+      /* build header */
+      buf[0] = MPSSE_DO_WRITE | (spi->WRITE_LSB_FIRST ? MPSSE_LSB : 0);
+      /* set spi mode according to AN_108 */
+      if (SPIMODE (spi) == 0 || SPIMODE (spi) == 3)      /* mode 0 or mode 3 */
+         buf[0] |= MPSSE_WRITE_NEG;
+      buf[1] = GETBYTE (buf_size - 1, 0);         /* length (low byte) */
+      buf[2] = GETBYTE (buf_size - 1, 1);         /* length (high byte) */
       
-      /* must not exceed internal buf size; end if no more data in block is available */
-      while (i < MAX_INTERNAL_BUF_LENGTH && data_length)
-      {
-         switch (part_of_frame)
-         {
-            case HEADER_0:
-               buffer[i] = MPSSE_DO_WRITE | (MPSSE_LSB & spi->READ_LSB_FIRST);
-               /* set spi mode according to AN_108 */
-               if (SPIMODE (spi) == 0 || SPIMODE (spi) == 3)      /* mode 0 or mode 3 */
-                  buffer[i] |= MPSSE_WRITE_NEG;
-
-               part_of_frame = HEADER_1;
-               break;
-            case HEADER_1:
-               /* get data length for one block */
-               if (data_length > MAX_SPI_BUF_LENGTH)
-                  data_block_length = MAX_SPI_BUF_LENGTH;
-               else
-                  data_block_length = data_length;
-            
-               buffer[i] = GETBYTE (data_block_length - 1, 0);         /* length (low byte) */
-
-               part_of_frame = HEADER_2;
-               break;
-            case HEADER_2:
-               buffer[i] = GETBYTE (data_block_length - 1, 1);         /* length (high byte) */
-
-               part_of_frame = DATA;
-               break;
-            case DATA:
-               /* decrease number of data in block and total number of data */
-               data_length--;
-               data_block_length--;
-               
-               /* load next data */
-               if (fread (buffer + i, sizeof (char), 1, fp) < 1)
-               {
-                  printf ("WARNING: Cannot read file, end-of-file reached at byte %d\n", data_length);
-                  data_length = 0;
-               }
-               
-               if (data_block_length == 0)
-                  part_of_frame = HEADER_0;
-               break;
-         }
-
-         i++;
-      }
-
-      /* buffer is full or there is no more data to load */
-
-      /* write out spi data */
-      if ((ret = ftdi_write_data_and_wait (ftdi, buffer + offset, i - offset)) < 0)
+      /* write out header */
+      if ((ret = ftdi_write_data_and_wait (ftdi, buf, 3)) < 0)
          ftdi_exit (ftdi, "ERROR: Unable to send SPI data: %d (%s)\n", ret);
-
-      /* if buffer's last elements are a part of header, these cannot be pushed out 
-      if device hasn't received any spi data */
-      if (part_of_frame != DATA)
-         offset = part_of_frame;
-      else
-         offset = 0;
-
-      /* buffer may be full: reset its index */
-      /* if it's not full, there is no more data to send, so it can be reset in any case */
-      i = offset;
-   }
-
-   return;
-}
-
-void spi_read_to_file (struct ftdi_context *ftdi, struct spi_context *spi, FILE *fp, int data_length)
-{
-   /* Reads data via spi from ftdi device and saves them in a file. */
-   const int HEADER_BLOCK_LENGTH = 3;                    /* length of header for one block of data */
-   
-   byte file_buffer[MAX_SPI_BUF_LENGTH];        /* buffer used to store data before writing them out in a file */
-   byte buffer[MAX_INTERNAL_BUF_LENGTH];        /* transmit buffer */
-
-   int frame_length, data_in_buffer_length, data_block_length;
-   int i = 0;
-
-   int part_of_frame = HEADER_0; 
-   int offset = 0;
-   
-   int ret;
-   
-   /* get total frame length */
-   frame_length = (data_length / MAX_SPI_BUF_LENGTH) * HEADER_BLOCK_LENGTH;
-   if (data_length % MAX_SPI_BUF_LENGTH != 0)
-      frame_length += HEADER_BLOCK_LENGTH;
-
-   /* while there are still frames to send */
-   while (frame_length)
-   {
-      data_in_buffer_length = 0;
-      /* must not exceed internal buf size; end if no more frames are available */
-      while (i < MAX_INTERNAL_BUF_LENGTH && frame_length)
-      {
-         switch (part_of_frame)
-         {
-            case HEADER_0:
-               buffer[i] = MPSSE_DO_READ | (MPSSE_LSB & spi->READ_LSB_FIRST);
-               /* set spi mode according to AN_108 */
-               if (SPIMODE (spi) == 1 || SPIMODE (spi) == 2)      /* mode 1 or mode 2 */
-                  buffer[i] |= MPSSE_READ_NEG;
-
-               part_of_frame = HEADER_1;
-               break;
-            case HEADER_1:
-               /* get data length for one block */
-               if (data_length > MAX_SPI_BUF_LENGTH)
-                  data_block_length = MAX_SPI_BUF_LENGTH;
-               else
-                  data_block_length = data_length;
-
-               buffer[i] = GETBYTE (data_block_length - 1, 0);         /* length (low byte) */
-
-               part_of_frame = HEADER_2;
-               break;
-            case HEADER_2:
-               buffer[i] = GETBYTE (data_block_length - 1, 1);         /* length (high byte) */
-
-               /* decrease total number of data to read */
-               data_length -= data_block_length;
-               /* increase number of data to read after sending this buffer */
-               data_in_buffer_length += data_block_length;
-
-               part_of_frame = HEADER_0;
-               break;
-         }
-
-         i++;
-         frame_length--;
-      }
-
       /* write out spi data */
-      if ((ret = ftdi_write_data_and_wait (ftdi, buffer + offset, i - offset)) < 0)
+      if ((ret = ftdi_write_data_and_wait (ftdi, file_buf, buf_size)) < 0)
          ftdi_exit (ftdi, "ERROR: Unable to send SPI data: %d (%s)\n", ret);
-
-      /* if buffer's last elements are a part of header, these cannot be pushed out 
-      if device hasn't received any spi data */
-      offset = part_of_frame;
-
-      /* buffer may be full: reset its index */
-      /* if it's not full, there is no more frames to send, so it can be reset in any case */
-      i = offset;
-
-      /* read data in blocks */
-      while (data_in_buffer_length > 0)
-      {
-         if (data_in_buffer_length > MAX_SPI_BUF_LENGTH)
-            data_block_length = MAX_SPI_BUF_LENGTH;
-         else
-            data_block_length = data_in_buffer_length;
-
-         if ((ret = ftdi_read_data_and_wait (ftdi, file_buffer, data_block_length)) < 0)
-            ftdi_exit (ftdi, "ERROR: Unable to read SPI data: %d (%s)\n", ret);
-
-         fwrite (file_buffer, sizeof (char), data_block_length, fp);
-         data_in_buffer_length -= data_block_length;
-      }
-   }
-
-   return;
-}
-
-void spi_write (struct ftdi_context *ftdi, struct spi_context *spi, byte *data, int data_length)
-{
-   /* Sends data via spi on ftdi device. */
-   byte buffer[MAX_INTERNAL_BUF_LENGTH];       /* transmit buffer */
-   
-   int data_block_length;
-   int i = 0;
-   
-   int part_of_frame = HEADER_0;
-   int offset = 0;
-
-   int ret;
-
-   /* while there are still data to write out */
-   while (data_length)
-   {
-      /* build up transmit buffer */
       
-      /* must not exceed internal buf size; end if no more data in block is available */
-      while (i < MAX_INTERNAL_BUF_LENGTH && data_length)
-      {
-         switch (part_of_frame)
-         {
-            case HEADER_0:
-               buffer[i] = MPSSE_DO_WRITE | (MPSSE_LSB & spi->READ_LSB_FIRST);
-               /* set spi mode according to AN_108 */
-               if (SPIMODE (spi) == 0 || SPIMODE (spi) == 3)      /* mode 0 or mode 3 */
-                  buffer[i] |= MPSSE_WRITE_NEG;
-
-               part_of_frame = HEADER_1;
-               break;
-            case HEADER_1:
-               /* get data length for one block */
-               if (data_length > MAX_SPI_BUF_LENGTH)
-                  data_block_length = MAX_SPI_BUF_LENGTH;
-               else
-                  data_block_length = data_length;
-            
-               buffer[i] = GETBYTE (data_block_length - 1, 0);         /* length (low byte) */
-
-               part_of_frame = HEADER_2;
-               break;
-            case HEADER_2:
-               buffer[i] = GETBYTE (data_block_length - 1, 1);         /* length (high byte) */
-
-               part_of_frame = DATA;
-               break;
-            case DATA:
-               buffer[i] = *data;
-
-               /* decrease number of data in block and total number of data */
-               data_length--;
-               data_block_length--;
-               
-               /* load next data */
-               data++;
-               
-               if (data_block_length == 0)
-                  part_of_frame = HEADER_0;
-               break;
-         }
-
-         i++;
-      }
-
-      /* buffer is full or there is no more data to load */
-  
-      /* write out spi data */
-      if ((ret = ftdi_write_data_and_wait (ftdi, buffer + offset, i - offset)) < 0)
-         ftdi_exit (ftdi, "ERROR: Unable to send SPI data: %d (%s)\n", ret);
-
-      /* if buffer's last elements are a part of header, these cannot be pushed out 
-      if device hasn't received any spi data */
-      if (part_of_frame != DATA)
-         offset = part_of_frame;
+      size -= buf_size;
+      
+      if (size > MAX_SPI_BUF_LENGTH)
+         buf_size = MAX_SPI_BUF_LENGTH;
       else
-         offset = 0;
-
-      /* buffer may be full: reset its index */
-      /* if it's not full, there is no more data to send, so it can be reset in any case */
-      i = offset;
+         buf_size = size;
    }
-
-   return;
+   
+   if (feof (fp))
+   {
+      printf ("WARNING: Cannot read file, end-of-file reached before sending out all data!\n");
+      printf ("   Remaining size: %d bytes\n", size);
+      return -1;
+   }
+   
+   return 1;
 }
 
-void spi_read (struct ftdi_context *ftdi, struct spi_context *spi, byte *data, int data_length)
-{
-   /* Reads data via spi from ftdi device. */
-   const int HEADER_BLOCK_LENGTH = 3;                    /* length of header for one block of data */
 
-   byte buffer[MAX_INTERNAL_BUF_LENGTH];        /* transmit buffer */
-
-   int frame_length, data_in_buffer_length, data_block_length;
-   int i = 0;
+/** 
+   Reads data via SPI from FTDI device and saves them in the file pointed by fp. 
    
-   int part_of_frame = HEADER_0; 
-   int offset = 0;
-
+   @param ftdi pointer to struct ftdi_context
+   @param spi pointer to struct spi_context
+   @param fp pointer to FILE
+   @param size size of data to read
+   
+   @retval <0 if a write error occurred before reading in all data
+   @retval >0 on success
+*/
+int spi_read_to_file (struct ftdi_context *ftdi, struct spi_context *spi, FILE *fp, int size)
+{
+   byte buf[3];
+   byte file_buf[MAX_SPI_BUF_LENGTH];
+   unsigned int buf_size;
    int ret;
-
-   /* get total frame length */
-   frame_length = (data_length / MAX_SPI_BUF_LENGTH) * HEADER_BLOCK_LENGTH;
-   if (data_length % MAX_SPI_BUF_LENGTH != 0)
-      frame_length += HEADER_BLOCK_LENGTH;
-
-   /* while there are still frames to send */
-   while (frame_length)
+   
+   while (size > 0)
    {
-      data_in_buffer_length = 0;
-      /* must not exceed internal buf size; end if no more frames are available */
-      while (i < MAX_INTERNAL_BUF_LENGTH && frame_length)
-      {
-         switch (part_of_frame)
-         {
-            case HEADER_0:
-               buffer[i] = MPSSE_DO_READ | (MPSSE_LSB & spi->READ_LSB_FIRST);
-               /* set spi mode according to AN_108 */
-               if (SPIMODE (spi) == 1 || SPIMODE (spi) == 2)      /* mode 1 or mode 2 */
-                  buffer[i] |= MPSSE_READ_NEG;
-
-               part_of_frame = HEADER_1;
-               break;
-            case HEADER_1:
-               /* get data length for one block */
-               if (data_length > MAX_SPI_BUF_LENGTH)
-                  data_block_length = MAX_SPI_BUF_LENGTH;
-               else
-                  data_block_length = data_length;
-
-               buffer[i] = GETBYTE (data_block_length - 1, 0);         /* length (low byte) */
-
-               part_of_frame = HEADER_2;
-               break;
-            case HEADER_2:
-               buffer[i] = GETBYTE (data_block_length - 1, 1);         /* length (high byte) */
-
-               /* decrease total number of data to read */
-               data_length -= data_block_length;
-               /* increase number of data to read after sending this buffer */
-               data_in_buffer_length += data_block_length;
-
-               part_of_frame = HEADER_0;
-               break;
-         }
-
-         i++;
-         frame_length--;
-      }
-
+      if (size > MAX_SPI_BUF_LENGTH)
+         buf_size = MAX_SPI_BUF_LENGTH;
+      else
+         buf_size = size;
+      
+      buf[0] = MPSSE_DO_READ | (spi->READ_LSB_FIRST ? MPSSE_LSB : 0);
+      /* set spi mode according to AN_108 */
+      if (SPIMODE (spi) == 1 || SPIMODE (spi) == 2)      /* mode 1 or mode 2 */
+         buf[0] |= MPSSE_READ_NEG;
+      buf[1] = GETBYTE (buf_size - 1, 0);         /* length (low byte) */
+      buf[2] = GETBYTE (buf_size - 1, 1);         /* length (high byte) */
+      
       /* write out spi data */
-      if ((ret = ftdi_write_data_and_wait (ftdi, buffer + offset, i - offset)) < 0)
+      if ((ret = ftdi_write_data_and_wait (ftdi, buf, 3)) < 0)
          ftdi_exit (ftdi, "ERROR: Unable to send SPI data: %d (%s)\n", ret);
-
-      /* if buffer's last elements are a part of header, these cannot be pushed out 
-      if device hasn't received any spi data */
-      offset = part_of_frame;
-
-      /* buffer may be full: reset its index */
-      /* if it's not full, there is no more frames to send, so it can be reset in any case */
-      i = offset;
 
       /* read data */
-      if ((ret = ftdi_read_data_and_wait (ftdi, data, data_in_buffer_length)) < 0)
+      if ((ret = ftdi_read_data_and_wait (ftdi, file_buf, buf_size)) < 0)
             ftdi_exit (ftdi, "ERROR: Unable to read SPI data: %d (%s)\n", ret);
-
-      data += data_in_buffer_length;
+      
+      /* write read data to file */
+      if (fwrite (file_buf, sizeof (byte), buf_size, fp) != buf_size)
+      {
+         fprintf (stderr, "ERROR: Unable to write file!\n");
+         printf ("   Remaining size: %d bytes\n", size);
+         return -1;
+      }
+      
+      size -= buf_size;
    }
+ 
+   return 1;
+}
 
+/**
+   Sends data via SPI on FTDI device.
+   
+   @param ftdi pointer to struct ftdi_context
+   @param spi pointer to struct spi_context
+   @param data byte array with data to write
+   @param size size of data to write
+*/
+
+void spi_write (struct ftdi_context *ftdi, struct spi_context *spi, byte *data, int size)
+{
+   byte buf[3];
+   int buf_size;
+   int ret;
+   
+   while (size > 0)
+   {
+      if (size > MAX_SPI_BUF_LENGTH)
+         buf_size = MAX_SPI_BUF_LENGTH;
+      else
+         buf_size = size;
+      
+      /* build header */
+      buf[0] = MPSSE_DO_WRITE | (spi->WRITE_LSB_FIRST ? MPSSE_LSB : 0);
+      /* set spi mode according to AN_108 */
+      if (SPIMODE (spi) == 0 || SPIMODE (spi) == 3)      /* mode 0 or mode 3 */
+         buf[0] |= MPSSE_WRITE_NEG;
+      buf[1] = GETBYTE (buf_size - 1, 0);         /* length (low byte) */
+      buf[2] = GETBYTE (buf_size - 1, 1);         /* length (high byte) */
+      
+      /* write out header */
+      if ((ret = ftdi_write_data_and_wait (ftdi, buf, 3)) < 0)
+         ftdi_exit (ftdi, "ERROR: Unable to send SPI data: %d (%s)\n", ret);
+      /* write out spi data */
+      if ((ret = ftdi_write_data_and_wait (ftdi, data, buf_size)) < 0)
+         ftdi_exit (ftdi, "ERROR: Unable to send SPI data: %d (%s)\n", ret);
+      
+      size -= buf_size;
+      data += buf_size;
+   }
+   
    return;
 }
 
+/**
+   Reads data via SPI from FTDI device.
+   
+   @param ftdi pointer to struct ftdi_context
+   @param spi pointer to struct spi_context
+   @param data byte array to store data in
+   @param size size of data to read
+*/
+void spi_read (struct ftdi_context *ftdi, struct spi_context *spi, byte *data, int size)
+{
+   byte buf[3];
+   int buf_size;
+   int ret;
+   
+   while (size > 0)
+   {
+      if (size > MAX_SPI_BUF_LENGTH)
+         buf_size = MAX_SPI_BUF_LENGTH;
+      else
+         buf_size = size;
+      
+      buf[0] = MPSSE_DO_READ | (spi->READ_LSB_FIRST ? MPSSE_LSB : 0);
+      /* set spi mode according to AN_108 */
+      if (SPIMODE (spi) == 1 || SPIMODE (spi) == 2)      /* mode 1 or mode 2 */
+         buf[0] |= MPSSE_READ_NEG;
+      buf[1] = GETBYTE (buf_size - 1, 0);         /* length (low byte) */
+      buf[2] = GETBYTE (buf_size - 1, 1);         /* length (high byte) */
+      
+      /* write out spi data */
+      if ((ret = ftdi_write_data_and_wait (ftdi, buf, 3)) < 0)
+         ftdi_exit (ftdi, "ERROR: Unable to send SPI data: %d (%s)\n", ret);
 
+      /* read data */
+      if ((ret = ftdi_read_data_and_wait (ftdi, data, buf_size)) < 0)
+            ftdi_exit (ftdi, "ERROR: Unable to read SPI data: %d (%s)\n", ret);
+         
+      size -= buf_size;
+      data += buf_size;
+   }
+ 
+   return;
+}
+
+/**
+   Prints selected SPI clock frequency to the terminal screen.
+   
+   @param spi pointer to struct spi_context
+*/
 void spi_print_clk_frequency (struct spi_context *spi)
 {
-   /* Prints selected spi clock frequency to the terminal screen */
    double clock_frequency;
    char prefix = '\0';
 
@@ -517,6 +384,13 @@ void spi_print_clk_frequency (struct spi_context *spi)
    return;
 }
 
+/**
+   Calculates selected SPI clock frequency.
+   
+   @param spi pointer to struct spi_context
+   
+   @return clock frequency
+*/
 double spi_frequency (struct spi_context *spi)
 {
    double clock_frequency;
@@ -529,6 +403,13 @@ double spi_frequency (struct spi_context *spi)
    return clock_frequency;
 }
 
+/**
+   Calculates selected SPI clock period.
+   
+   @param spi pointer to struct spi_context
+   
+   @return clock period
+*/
 double spi_clk_period (struct spi_context *spi)
 {
    double clock_period;
@@ -538,6 +419,17 @@ double spi_clk_period (struct spi_context *spi)
    return clock_period;
 }
 
+/**
+   Sets level and i/o state of low bits in FTDI device. Only selected pins in mask will be modified.
+   <br>Note that in SPI mode the four least significant bits controls SCLK, MOSI, MISO and CS lines 
+   and should not be changed via this function unless particular initialisation are required.
+   
+   @param ftdi pointer to struct ftdi_context
+   @param spi pointer to struct spi_context
+   @param mask bit mask (set to 1 the pins whose level or i/o must be modified)
+   @param level pins level (0 = low, 1 = high)
+   @param io pins i/o (0 = output, 1 = input)
+*/
 void ftdi_set_bits_low (struct ftdi_context *ftdi, struct spi_context *spi, 
                                       byte mask, byte level, byte io)
 {
@@ -560,6 +452,15 @@ void ftdi_set_bits_low (struct ftdi_context *ftdi, struct spi_context *spi,
    return;
 }
 
+/**
+   Sets level and i/o state of high bits in FTDI device. Only selected pins in mask will be modified.
+   
+   @param ftdi pointer to struct ftdi_context
+   @param spi pointer to struct spi_context
+   @param mask bit mask (set to 1 the pins whose level or i/o must be modified)
+   @param level pins level (0 = low, 1 = high)
+   @param io pins i/o (0 = output, 1 = input)
+*/
 void ftdi_set_bits_high (struct ftdi_context *ftdi, struct spi_context *spi, 
                                        byte mask, byte level, byte io)
 {
@@ -582,6 +483,14 @@ void ftdi_set_bits_high (struct ftdi_context *ftdi, struct spi_context *spi,
    return;
 }
 
+/**
+   Gets level of low bits in FTDI device. Data retrieved is used to update spi_context structure.
+   
+   @param ftdi pointer to struct ftdi_context
+   @param spi pointer to struct spi_context
+
+   @return level of low bits
+*/
 byte ftdi_get_bits_low (struct ftdi_context *ftdi, struct spi_context *spi)
 {
    byte buf, level;
@@ -600,6 +509,14 @@ byte ftdi_get_bits_low (struct ftdi_context *ftdi, struct spi_context *spi)
    return level;
 }
 
+/**
+   Gets level of high bits in FTDI device. Data retrieved is used to update spi_context structure.
+   
+   @param ftdi pointer to struct ftdi_context
+   @param spi pointer to struct spi_context
+
+   @return level of high bits
+*/
 byte ftdi_get_bits_high (struct ftdi_context *ftdi, struct spi_context *spi)
 {
    byte buf, level;

@@ -9,6 +9,12 @@
 #include "ftdi_spi.h"
 #include "sd_spi.h"
 
+/**
+   Initialises SD card to work in SPI mode.
+   
+   @param ftdi pointer to struct ftdi_context
+   @param spi pointer to struct spi_context
+*/
 void sd_init (struct ftdi_context *ftdi, struct spi_context *spi)
 { 
    byte buf[3];
@@ -30,21 +36,36 @@ void sd_init (struct ftdi_context *ftdi, struct spi_context *spi)
    return;
 }
 
-void sd_reset (struct ftdi_context *ftdi, struct spi_context *spi)
+/**
+   Resets SD card by continously sending a CMD0 command until card does not correctly respond.
+   
+   @param ftdi pointer to struct ftdi_context
+   @param spi pointer to struct spi_context
+   @param timeout maximum waiting time in seconds
+*/
+void sd_reset (struct ftdi_context *ftdi, struct spi_context *spi, int timeout)
 {
    byte r1;
    int ret;
+   time_t start, end;
    
    /* send CMD0 (GO_IDLE_STATE) command to reset sd card */
    /* send until card does not respond */
-   while ((ret = sd_send_command (ftdi, spi, &r1, CMD0, 0x00000000)) < 0);
+   start = time_sync ();
+   do
+   {
+      ret = sd_send_command (ftdi, spi, &r1, CMD0, 0x00000000);
+      
+      time (&end);
+   }
+   while (difftime (end, start) < timeout && (ret <= 0 || r1 != IN_IDLE_STATE));
    
    /* if not in idle state or an error occured */
-   if (!(r1 & IN_IDLE_STATE) || ret <= 0) 
+   if (ret <= 0) 
    {
       /* terminate program */
       if (ret < 0)
-         fprintf (stderr, "ERROR: Unable to receive a valid response from SD card\n");
+      fprintf (stderr, "ERROR: Unable to receive a valid response from SD card\n");
       else
          fprintf (stderr, "ERROR: Unexpected SD card response: 0x%.2X\n", r1);
       
@@ -56,7 +77,20 @@ void sd_reset (struct ftdi_context *ftdi, struct spi_context *spi)
    return;
 }
 
-int sd_recognize (struct ftdi_context *ftdi, struct spi_context *spi)
+
+/**
+   Recognizes SD card version
+   
+   @param ftdi pointer to struct ftdi_context
+   @param spi pointer to struct spi_context
+   @param timeout maximum waiting time in seconds
+   
+   @retval 0 if card is a MMC ver. 3
+   @retval 1 if card is a SD ver. 1
+   @retval 2 if card is a SD ver. 2 (byte address)
+   @retval 3 if card is a SD ver. 2 (block address)
+*/
+int sd_recognize (struct ftdi_context *ftdi, struct spi_context *spi, int timeout)
 {
    byte buf[5];
    int ret;
@@ -82,10 +116,10 @@ int sd_recognize (struct ftdi_context *ftdi, struct spi_context *spi)
             ret = sd_send_command (ftdi, spi, &r1, ACMD41, 0x00000000);
 
          time (&end);
-      /* exit if error or timeout occured or r1 is not equal to 0x01 (in idle state) */
-      } while (difftime (end, start) < 1 && ret > 0 && (r1 == IN_IDLE_STATE));
+      /* exit if error or timeout occured or if r1 is not equal to 0x01 (in idle state) */
+      } while (difftime (end, start) < timeout && ret > 0 && r1 == IN_IDLE_STATE);
 
-      if (r1 == 0x00)
+      if (ret > 0 && r1 == 0x00)
       {
          /* SD version 1 */
          return 1;
@@ -99,9 +133,9 @@ int sd_recognize (struct ftdi_context *ftdi, struct spi_context *spi)
          
          time (&end);
       /* exit if error or timeout occured or r1 is not equal to 0x01 (in idle state) */
-      } while (difftime (end, start) < 1 && ret > 0 && (r1 == IN_IDLE_STATE));
+      } while (difftime (end, start) < timeout && ret > 0 && r1 == IN_IDLE_STATE);
       
-      if (r1 == 0x00)
+      if (ret > 0 && r1 == 0x00)
       {
          /* MMC version 3 */
          return 0;
@@ -118,9 +152,9 @@ int sd_recognize (struct ftdi_context *ftdi, struct spi_context *spi)
          
          time (&end);
       /* exit if error or timeout occured or r1 is not equal to 0x01 (in idle state) */
-      } while (difftime (end, start) < 1 && ret > 0 && (r1 == IN_IDLE_STATE));
+      } while (difftime (end, start) < timeout && ret > 0 && r1 == IN_IDLE_STATE);
 
-      if (r1 == 0x00)
+      if (ret > 0 && r1 == 0x00)
       {
          /* SD version 2 */
          
@@ -155,6 +189,12 @@ int sd_recognize (struct ftdi_context *ftdi, struct spi_context *spi)
    exit (EXIT_FAILURE);
 }
 
+
+/**
+   Auxiliary function used by sd_reset and sd_recognize to synchronize a time_t variable with seconds.
+   
+   @return synchronized time_t variable
+*/
 time_t time_sync (void)
 {
    time_t t1, t2;
@@ -171,6 +211,17 @@ time_t time_sync (void)
    return t2;
 }
 
+
+/**
+   Reads OCR register from SD card by sending a CMD58 command.
+   
+   @param ftdi pointer to struct ftdi_context
+   @param spi pointer to struct spi_context
+   @param ocr pointer to dword
+   
+   @retval <=0 if error or no response
+   @retval >0 if card responded
+*/
 int sd_get_ocr (struct ftdi_context *ftdi, struct spi_context *spi, dword *ocr)
 {
    byte buf[5];
@@ -182,7 +233,7 @@ int sd_get_ocr (struct ftdi_context *ftdi, struct spi_context *spi, dword *ocr)
    {
       /* error or no response */
       fprintf (stderr, "ERROR: Could not retrieve OCR register value\n");
-      return -1;
+      return ret;
    }
 
    /* split response packet */
@@ -193,6 +244,16 @@ int sd_get_ocr (struct ftdi_context *ftdi, struct spi_context *spi, dword *ocr)
    return 1;
 }
 
+/**
+   Reads CID register from SD card by sending a CMD10 command.
+   
+   @param ftdi pointer to struct ftdi_context
+   @param spi pointer to struct spi_context
+   @param cid pointer to struct sd_cid
+   
+   @retval <=0 if error or no response
+   @retval >0 if card responded
+*/
 int sd_get_cid (struct ftdi_context *ftdi, struct spi_context *spi, struct sd_cid *cid)
 {
    byte buf[16];
@@ -204,14 +265,14 @@ int sd_get_cid (struct ftdi_context *ftdi, struct spi_context *spi, struct sd_ci
    {
       /* error or no response */
       fprintf (stderr, "ERROR: Could not retrieve CID register value\n");
-      return -1;
+      return ret;
    }
    
    if ((ret = sd_read_data (ftdi, spi, buf, 16)) <= 0)
    {
       /* error or no response */
       fprintf (stderr, "ERROR: Could not retrieve CID register value\n");
-      return -1;
+      return ret;
    }
    
    if ((crc_7 (buf, 15) << 1 | 0x01) != buf[15])
@@ -245,6 +306,16 @@ int sd_get_cid (struct ftdi_context *ftdi, struct spi_context *spi, struct sd_ci
    return 1;
 }
 
+/**
+   Reads CSD register from SD card by sending a CMD10 command.
+   
+   @param ftdi pointer to struct ftdi_context
+   @param spi pointer to struct spi_context
+   @param csd pointer to struct sd_csd
+   
+   @retval <=0 if error or no response
+   @retval >0 if card responded
+*/
 int sd_get_csd (struct ftdi_context *ftdi, struct spi_context *spi, struct sd_csd *csd)
 {
    byte buf[16];
@@ -256,14 +327,14 @@ int sd_get_csd (struct ftdi_context *ftdi, struct spi_context *spi, struct sd_cs
    {
       /* error or no response */
       fprintf (stderr, "ERROR: Could not retrieve CSD register value\n");
-      return -1;
+      return ret;
    }
    
    if ((ret = sd_read_data (ftdi, spi, buf, 16)) <= 0)
    {
       /* error or no response */
       fprintf (stderr, "ERROR: Could not retrieve CSD register value\n");
-      return -1;
+      return ret;
    }
    
    if ((crc_7 (buf, 15) << 1 | 0x01) != buf[15])
@@ -319,6 +390,11 @@ int sd_get_csd (struct ftdi_context *ftdi, struct spi_context *spi, struct sd_cs
    return 1;
 }
 
+/**
+   Prints OCR register information.
+   
+   @param ocr OCR register value
+*/
 void sd_print_ocr_info (dword ocr)
 {
    int i, min, max;
@@ -345,6 +421,11 @@ void sd_print_ocr_info (dword ocr)
    return; 
 }
 
+/**
+   Prints CID register information.
+   
+   @param cid CID register structure
+*/
 void sd_print_cid_info (struct sd_cid cid)
 {
    char manufacturer[64];
@@ -363,6 +444,11 @@ void sd_print_cid_info (struct sd_cid cid)
    return;
 }
 
+/**
+   Prints CSD register information.
+   
+   @param csd CSD register structure
+*/
 void sd_print_csd_info (struct sd_csd csd)
 {
    int i;
@@ -414,6 +500,13 @@ void sd_print_csd_info (struct sd_csd csd)
    return;
 }
 
+/**
+   Auxiliary function used by sd_print_cid_info to retrieve Manufacturer name from MID, 
+   OID fields in CID register.
+   
+   @param cid CID register structure
+   @param man string to store manufacturer name
+*/
 void sd_cid_manufacturer (struct sd_cid cid, char *man)
 {
    const struct sd_manufacturer sd_list[] = {
@@ -448,7 +541,19 @@ void sd_cid_manufacturer (struct sd_cid cid, char *man)
    return;
 }
 
-
+/**
+   Sends a command to the SD card.
+   
+   @param ftdi pointer to struct ftdi_context
+   @param spi pointer to struct spi_context
+   @param response pointer to byte array to store response (5 bytes at most)
+   @param cmd command to send
+   @param arg argument value
+   
+   @retval <0 if no response has been received
+   @retval 0 if card response is not valid
+   @retval >0 on success
+*/
 int sd_send_command (struct ftdi_context *ftdi, struct spi_context *spi, byte *response, byte cmd, dword arg)
 {
    byte pkt[6], temp;
@@ -470,6 +575,8 @@ int sd_send_command (struct ftdi_context *ftdi, struct spi_context *spi, byte *r
    pkt[4] = GETBYTE (arg, 0);   
    pkt[5] = (crc_7 (pkt, 5) << 1) | 0x01;    /* crc must be left shifted and first bit must be 1 */
    
+   
+   DEBUG_PRINT ("DEBUG: Sending command CMD%d ", cmd - 0x40);
    /* send packet */
    spi_write (ftdi, spi, pkt, 6);
    
@@ -510,12 +617,24 @@ int sd_send_command (struct ftdi_context *ftdi, struct spi_context *spi, byte *r
       return -1;
    
    /* response received */
-   if (sd_is_r1_valid (response[0]))
+   if (!sd_is_r1_valid (response[0]))
       return 0;
    
    return 1;
 }
 
+/**
+   Reads data from SD card.
+   
+   @param ftdi pointer to struct ftdi_context
+   @param spi pointer to struct spi_context
+   @param data byte array to store data in
+   @param count size of data to read
+   
+   @retval <0 if no response has been received
+   @retval 0 if response token is not valid (either is an error token or response token is invalid)
+   @retval >0 on success
+*/
 int sd_read_data (struct ftdi_context *ftdi, struct spi_context *spi, byte *data, int count)
 {
    byte token, crc[2];
@@ -524,7 +643,7 @@ int sd_read_data (struct ftdi_context *ftdi, struct spi_context *spi, byte *data
    timeout = 0;
    processing = 1;
 
-   DEBUG_PRINT ("DEBUG: Receiving data  ");
+   DEBUG_PRINT ("DEBUG: Receiving data        ");
    /* read data/error token */
    do
    {
@@ -570,7 +689,16 @@ int sd_read_data (struct ftdi_context *ftdi, struct spi_context *spi, byte *data
    return 1;
 }
 
-
+/**
+   Auxiliary function used by sd_read_data to check if either the response token is 
+   an error token or is invalid.
+   
+   @param token token value
+   
+   @retval <0 if response token is not valid
+   @retval 0 if response token is an error token
+   @retval >0 on success
+*/
 int sd_is_token_valid (byte token)
 {
    if (token == 0xFE || token == 0xFC || token == 0xF1)
@@ -591,19 +719,27 @@ int sd_is_token_valid (byte token)
       return 0;
    }
    else
-   {
-      fprintf (stderr, "ERROR: SD card token not valid, 0x%.2X received\n", token);
-      return -1;
-   }
+   
+   fprintf (stderr, "ERROR: SD card token not valid, 0x%.2X received\n", token);
+   return -1;
 }
 
+/**
+   Auxiliary function used by sd_send_command to check if the R1 response 
+   is invalid.
+   
+   @param r1 R1 response value
+   
+   @retval 0 if R1 response is invalid
+   @retval >0 on success
+*/
 int sd_is_r1_valid (byte r1)
 {
    /* Checks if sd card has detected an error */
    
    /* if all the first six bits are set to 0, no error has been detected */
    if (!(r1 & 0xFC))
-      return 0;
+      return 1;
    
    printf ("WARNING: SD card response not valid, 0x%.2X received:\n", r1);
    
@@ -614,9 +750,16 @@ int sd_is_r1_valid (byte r1)
    if (r1 & CMD_CRC_ERR)   printf ("   - Command CRC Error\n");
    if (r1 & ILLEGAL_CMD)   printf ("   - Illegal Command\n");
    
-   return 1;
+   return 0;
 }
 
+/**
+   Interpretes R7 response and splits it in R1 response and OCR register value.
+   
+   @param response pointer to byte array containing response data
+   @param r1 pointer to r1
+   @param ocr pointer to dword
+*/
 void interpret_r7_response (byte *response, byte *r1, dword *ocr)
 {
    *r1 = response[0];
@@ -625,6 +768,14 @@ void interpret_r7_response (byte *response, byte *r1, dword *ocr)
    return;
 }
 
+/** 
+   Calculates CRC-7 used by SD card to check if received commands are correct.
+   
+   @param data byte array
+   @param count size of data
+   
+   @return calculated CRC-7 byte
+*/
 byte crc_7 (byte *data, int count)
 {
    /* G(x)=x^7+x^3+1*/
@@ -632,6 +783,14 @@ byte crc_7 (byte *data, int count)
    return (byte)crc (data, count, poly);
 }
 
+/** 
+   Calculates CRC-16 used by host to check if received data are correct.
+   
+   @param data byte array
+   @param count size of data
+   
+   @return calculated CRC-16 word
+*/
 word crc_16 (byte *data, int count)
 {
    /* G(x)=x^16+x^12+x^5+1 */
@@ -639,6 +798,16 @@ word crc_16 (byte *data, int count)
    return (word)crc (data, count, poly);
 }
 
+/**
+   Auxiliary function used to calculate a non-specified CRC using a custom polynomial.
+   Polynomial must not exceed 32-bit value.
+   
+   @param data byte array
+   @param count size of data
+   @param poly polynomial value
+   
+   @return calculated CRC value
+*/
 dword crc (byte *data, int count, dword poly)
 {
    const int BITS_DWORD = 8 * sizeof (dword);
@@ -710,6 +879,12 @@ dword crc (byte *data, int count, dword poly)
    return crc;
 }
 
+/**
+   Auxiliary function used by crc to left shift by one position an array of bytes.
+   
+   @param data byte array
+   @param count size of data
+*/
 void l_shift (dword *data, int count)
 {
    int i;
@@ -726,17 +901,28 @@ void l_shift (dword *data, int count)
    return;
 }
 
-dword get_bits (byte *data, int length, int start_bit, int size)
+/**
+   Auxiliary function used by sd_get_cid and sd_get_csd to retrieve data from an array of bytes 
+   starting from any bit inside the array.
+   
+   @param data byte array
+   @param size size of data
+   @param start_bit starting bit
+   @param length length in bit of data to be retrieved
+
+   @return retrieved data
+*/
+dword get_bits (byte *data, int size, int start_bit, int length)
 {
    int i, bit, last_bit, bit_in_dword, bit_in_byte;
    dword res = 0x00000000;
 
-   last_bit = start_bit + size;
+   last_bit = start_bit + length;
 
    bit_in_dword = 0;
    for (bit = start_bit; bit < last_bit; bit++)
    {
-      i = (length - 1) - bit / (8 * sizeof (byte));
+      i = (size - 1) - bit / (8 * sizeof (byte));
       bit_in_byte = bit % (8 * sizeof (byte));
       
       SETBIT (res, bit_in_dword, GETBIT (data[i], bit_in_byte));

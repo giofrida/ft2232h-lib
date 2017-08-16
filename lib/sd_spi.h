@@ -2,14 +2,10 @@
 #define SETBIT(field, bit, val) (field) = (((field) & ~(1 << (bit))) | (((val) & 1) << (bit)))
 #define GETBIT(field, bit)        (((field) & (1 << (bit))) >> (bit))
 
-#ifdef DEBUG
-#define DEBUG_PRINT(fmt, args...)    fprintf (stderr, fmt, ## args)
-#else
-#define DEBUG_PRINT(fmt, args...)
-#endif
-
-
-/* Commands definition */
+/**
+   @defgroup DEF_SD_CMD Commands definition 
+   @{
+*/
 #define CMD0    (0x40+0)    /* GO_IDLE_STATE */
 #define CMD1    (0x40+1)    /* SEND_OP_COND (MMC) */
 #define ACMD41  (0x40+41)   /* SEND_OP_COND (SDC) */
@@ -27,10 +23,14 @@
 #define CMD25   (0x40+25)   /* WRITE_MULTIPLE_BLOCK */
 #define CMD55   (0x40+55)   /* APP_CMD */
 #define CMD58   (0x40+58)   /* READ_OCR */
+/**@} */
 
 /* Registers data structure */
 
-/* R1 response */
+/**
+   @defgroup DEF_SD_R1 R1 response structure
+   @{
+*/
 #define IN_IDLE_STATE 0x01  /* In Idle State */
 #define ERASE_RESET   0x02  /* Erase Reset */
 #define ILLEGAL_CMD   0x04  /* Illegal Command */
@@ -39,28 +39,30 @@
 #define ADDR_ERR      0x20  /* Address Error */
 #define PARAM_ERR     0x40  /* Parameter Error */
 #define R1_RSVD       0x80  /* reserved, must be 0 */
+/**@} */
 
-/* Error token */
+/**
+   @defgroup DEF_SD_ERRTOK Error token structure
+   @{
+*/
 #define ERR           0x01  /* Error */
 #define CC_ERR        0x02  /* CC error */
 #define ECC_FAIL      0x04  /* Card ECC failed */
 #define OUT_OF_RANGE  0x08  /* Out of range */
 #define CARD_LOCK     0x10  /* Card is locked */
 #define TOK_RSVD      0xE0  /* reserved, must be 0 */
+/**@} */
 
-/* OCR register */
+/**
+   @defgroup DEF_SD_OCR OCR register structure
+   @{
+*/
 #define FULL_VDD_WINDOW  0x00FFFFFF /* Full VDD voltage window */
 #define VDD_WINDOW       0x00FF8000 /* VDD (non-low-voltage) voltage window */
 #define CCS              0x40000000 /* Card Capacity Status */
 #define CARD_BUSY        0x80000000 /* Card power up status bit (busy) */
+/**@} */
 
-/* Type redefinition */
-#ifndef FTDI_LIB_TYPES_DEFINED
-typedef uint8_t  byte;
-typedef uint16_t word;
-typedef uint32_t dword;
-#define FTDI_LIB_TYPES_DEFINED
-#endif
 
 struct sd_cid
 {
@@ -117,12 +119,19 @@ struct sd_manufacturer
    char oid[3];
 };
 
-/* CID macros */
+/**
+   @defgroup MACRO_SD_CID CID macros 
+   @{
+*/
 #define sd_cid_month(cid)     ((cid).MDT & 0x00F)
 #define sd_cid_year(cid)      (2000 + (((cid).MDT & 0xFF0) >> 4))
+/**@} */
 
-/* CSD macros */
-#define sd_csd_version(cid)   ((cid).CSD_STRUCTURE + 1)
+/**
+   @defgroup MACRO_SD_CSD CSD macros 
+   @{
+*/
+#define sd_csd_version(csd)   ((csd).CSD_STRUCTURE + 1)
 
 static const double taac_timevalue[16] = {0, 1.0, 1.2, 1.3, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 7.0, 8.0};
 static const int    taac_timemult[8]   = {1, 10, 100, 1, 10, 100, 1, 10};
@@ -161,11 +170,11 @@ static const char file_type[5][128] = { "Hard disk-like file system with partiti
                                         "Others/Unknown",
                                         "Reserved" };
 #define sd_csd_file_format(csd)                (((csd).FILE_FORMAT_GRP == 0) ? file_type[(csd).FILE_FORMAT] : file_type[4])
-
+/**@} */
 
 void sd_init (struct ftdi_context *ftdi, struct spi_context *spi);
-void sd_reset (struct ftdi_context *ftdi, struct spi_context *spi);
-int sd_recognize (struct ftdi_context *ftdi, struct spi_context *spi);
+void sd_reset (struct ftdi_context *ftdi, struct spi_context *spi, int timeout);
+int sd_recognize (struct ftdi_context *ftdi, struct spi_context *spi, int timeout);
 time_t time_sync (void);
 
 int sd_get_ocr (struct ftdi_context *ftdi, struct spi_context *spi, dword *ocr);
@@ -189,4 +198,4 @@ word crc_16 (byte *data, int count);
 dword crc (byte *data, int count, dword poly);
 void l_shift (dword *data, int count);
 
-dword get_bits (byte *data, int length, int start_bit, int size);
+dword get_bits (byte *data, int size, int start_bit, int length);
