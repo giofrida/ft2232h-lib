@@ -21,8 +21,8 @@ int main (int argc, char *argv[])
    /* init ftdi communication (usb paramters) */
    ftdi = ftdi_open ();
    
-   /* init spi communication: spi mode 1, 0x0014 divider (=400 kHz), divide by 5 on, MSB first */
-   spi = spi_init (ftdi, 1, 1, 14, 1, 1, 1, 1, 1, 0);
+   /* init spi communication: spi mode 1, 14 divider (=400 kHz), divide by 5 on, MSB first */
+   spi = spi_init (ftdi, 1, 1, 14, 1, 1, 0, 0, 0);
 
    /* initialise sd card */
    sd_init (ftdi, spi);
