@@ -30,4 +30,4 @@ When using gcc you only have to specify the ```.c``` files you are using from my
 <br>```gcc ftdi_test.c -o ftdi_test.exe lib\ftdi_interface.c lib\ftdi_spi.c -llibftdi1```
 
 ## Documentation ##
-The library has been fast documented using Doxygen. You can read the [documentation here](giofrida.github.io/ft2232h-lib/index.html).
+The library has been fast documented using Doxygen. You can read the [documentation here](http://giofrida.github.io/ft2232h-lib/index.html).
