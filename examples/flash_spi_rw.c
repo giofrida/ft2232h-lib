@@ -7,20 +7,20 @@
 #include "..\lib\ftdi_interface.h"
 #include "..\lib\ftdi_spi.h"
 
-#include "spi_flash.h"
+#include "flash_spi.h"
 
 #define GETBIT(field, bit)        (((field) & (1 << (bit))) >> (bit))
 
-#define BYTE_TO_BINARY_PATTERN "%5c%5c%5c%5c%5c%5c%5c%5c"
+#define BYTE_TO_BINARY_PATTERN "%5d%5d%5d%5d%5d%5d%5d%5d"
 #define BYTE_TO_BINARY(byte)  \
-  GETBIT (byte, 7), \
-  GETBIT (byte, 6), \
-  GETBIT (byte, 5), \
-  GETBIT (byte, 4), \
-  GETBIT (byte, 3), \
-  GETBIT (byte, 2), \
-  GETBIT (byte, 1), \
-  GETBIT (byte, 0) 
+  GETBIT(byte, 7), \
+  GETBIT(byte, 6), \
+  GETBIT(byte, 5), \
+  GETBIT(byte, 4), \
+  GETBIT(byte, 3), \
+  GETBIT(byte, 2), \
+  GETBIT(byte, 1), \
+  GETBIT(byte, 0) 
 
   
 dword read_eeprom_size (char *str);
@@ -35,6 +35,7 @@ void flash_id_manufacturer (byte id, char *man);
 void flash_read_id (struct ftdi_context *ftdi, struct spi_context *spi, byte *id);
 
 byte flash_read_status (struct ftdi_context *ftdi, struct spi_context *spi);
+int flash_reset_status (struct ftdi_context *ftdi, struct spi_context *spi);
 void flash_wait_if_busy (struct ftdi_context *ftdi, struct spi_context *spi);
 void flash_write_enable (struct ftdi_context *ftdi, struct spi_context *spi);
 
@@ -67,8 +68,8 @@ int main (int argc, char *argv[])
    /* init ftdi communication (usb paramters) */
    ftdi = ftdi_open ();
    
-   /* init spi communication: spi mode 3, maximum divider, divide by 5 on, MSB first */
-   spi = spi_init (ftdi, 1, 1, 0x0000, 0, 1, 0, 0, 0);
+   /* init spi communication: spi mode 0, maximum divider, divide by 5 off, MSB first */
+   spi = spi_init (ftdi, 0, 0, 0x0000, 0, 0, 0, 0, 0);
    
    /* From Macronix datasheet, device operation:
    1. Before issuing any command, check the status register to ensure device is ready
@@ -89,7 +90,7 @@ int main (int argc, char *argv[])
    /* read eeprom id and print information */
    flash_read_id (ftdi, spi, eeprom_id);
    flash_print_info (eeprom_id);
-   
+
    /* read entire chip and save it in a file */
    if ((fp_read = fopen ("EEPROM_backup.bin", "wb")) == NULL) 
    {
@@ -112,6 +113,13 @@ int main (int argc, char *argv[])
       return EXIT_SUCCESS;
    }
 
+   /* reset status register */
+   if (flash_reset_status (ftdi, spi) < 0)
+   {
+      fprintf (stderr, "ERROR: Could not write status, check WP# pin!\n");
+      return EXIT_FAILURE;
+   }   
+   
    /* erase chip before writing */
    printf ("INFO: Erasing EEPROM...\n");
    flash_erase (ftdi, spi);
@@ -203,6 +211,9 @@ int flash_write (struct ftdi_context *ftdi, struct spi_context *spi, FILE *fp, d
    addr = 0x000000;
    rem_size = size;
    
+   /* ensure BUSY bit is cleared before starting */
+   flash_wait_if_busy (ftdi, spi);
+   
    start = time_sync ();
    
    if (rem_size > 256)
@@ -216,19 +227,19 @@ int flash_write (struct ftdi_context *ftdi, struct spi_context *spi, FILE *fp, d
       buf[1] = GETBYTE (addr, 2);
       buf[2] = GETBYTE (addr, 1);
       buf[3] = GETBYTE (addr, 0);
-      
-      /* ensure BUSY bit is cleared */
-      flash_wait_if_busy (ftdi, spi);
-      
+
       /* ensure WEL bit is set */
       flash_write_enable (ftdi, spi);
-      
+
       spi_open (ftdi, spi);
       /* send write request */
       spi_write (ftdi, spi, buf, 4);
       /* send data to write out */
       spi_write (ftdi, spi, file_buf, file_buf_size);     
       spi_close (ftdi, spi);
+      
+      /* ensure BUSY bit is cleared */
+      flash_wait_if_busy (ftdi, spi);
       
       addr += file_buf_size;
       rem_size -= file_buf_size;
@@ -245,8 +256,6 @@ int flash_write (struct ftdi_context *ftdi, struct spi_context *spi, FILE *fp, d
          time (&start);
       }
    }
-
-   flash_wait_if_busy (ftdi, spi);
    
    /* if not all data has been written, because an EOF has occurred */
    if (addr < size && fread (file_buf, sizeof (byte), file_buf_size, fp) != 1)
@@ -325,13 +334,15 @@ void flash_erase (struct ftdi_context *ftdi, struct spi_context *spi)
 {
    byte buf = CE;
    
+   /* ensure BUSY bit is cleared before starting */
    flash_wait_if_busy (ftdi, spi);
+   /* ensure WEL bit is set */
    flash_write_enable (ftdi, spi);
-   
+   /* erase */
    spi_open (ftdi, spi);
    spi_write (ftdi, spi, &buf, 1);
    spi_close (ftdi, spi);
-
+   /* ensure BUSY bit is cleared */
    flash_wait_if_busy (ftdi, spi);
    
    return;
@@ -421,6 +432,7 @@ byte flash_read_status (struct ftdi_context *ftdi, struct spi_context *spi)
    byte buf = RDSR;
    byte flash_status;
    
+   /* read status register and print debug info */
    spi_open (ftdi, spi);
    spi_write (ftdi, spi, &buf, 1);
    spi_read (ftdi, spi, &flash_status, 1);
@@ -434,11 +446,46 @@ byte flash_read_status (struct ftdi_context *ftdi, struct spi_context *spi)
    return flash_status;
 }
 
+int flash_reset_status (struct ftdi_context *ftdi, struct spi_context *spi)
+{
+   byte buf = WRSR;
+   byte flash_status;
+   byte new_status = 0x00;
+   
+   time_t start, end;
+   
+   flash_status = flash_read_status (ftdi, spi);
+
+   /* if no BP bits is set, return */
+   if (!(flash_read_status (ftdi, spi) & 0x1C))
+      return 1;
+   
+   /* else, at least one BP bit is set, and status register must be zeroed */
+   start = time_sync ();
+   do
+   {
+      /* ensure WEL bit is set */
+      flash_write_enable (ftdi, spi);
+      /* write new status */
+      spi_open (ftdi, spi);
+      spi_write (ftdi, spi, &buf, 1);
+      spi_write (ftdi, spi, &new_status, 1);
+      spi_close (ftdi, spi);
+      
+      time (&end);
+   } while (difftime (end, start) < 10 && flash_status != new_status);
+   
+   if (flash_status != new_status)
+      return -1;
+   
+   return 1;
+}
+
 void flash_write_enable (struct ftdi_context *ftdi, struct spi_context *spi)
 {
    byte buf = WREN;
-
-   /* set WEL = 1 */
+   
+   /* set WEL bit = 1 */
    spi_open (ftdi, spi);
    spi_write (ftdi, spi, &buf, 1);
    spi_close (ftdi, spi);
@@ -454,7 +501,7 @@ void flash_wait_if_busy (struct ftdi_context *ftdi, struct spi_context *spi)
    spi_open (ftdi, spi);
    spi_write (ftdi, spi, &buf, 1);
    do
-      spi_read (ftdi, spi, &flash_status, 1);
+      spi_read (ftdi, spi, &flash_status, 1);   /* status register is continously output until CS# is not high */
    while (flash_status & WIP);
    spi_close (ftdi, spi);
    
@@ -462,18 +509,18 @@ void flash_wait_if_busy (struct ftdi_context *ftdi, struct spi_context *spi)
 }
 
 
-time_t time_sync (void)
-{
-   time_t t1, t2;
+// time_t time_sync (void)
+// {
+   // time_t t1, t2;
    
-   do
-   {
-      time (&t1);
-      do
-      {
-         time (&t2);
-      } while (difftime (t2, t1) < 1);    /* exit if *at least* 1 sec has passed */
-   } while (difftime (t2, t1) > 1);       /* exit if *no more than* 1 sec has passed */
+   // do
+   // {
+      // time (&t1);
+      // do
+      // {
+         // time (&t2);
+      // } while (difftime (t2, t1) < 1);    /* exit if *at least* 1 sec has passed */
+   // } while (difftime (t2, t1) > 1);       /* exit if *no more than* 1 sec has passed */
    
-   return t2;
-}
+   // return t2;
+// }
