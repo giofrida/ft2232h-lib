@@ -71,20 +71,8 @@ struct spi_context *spi_init (struct ftdi_context *ftdi,
       ftdi_exit (ftdi, "ERROR: Unable to tune clock signal: %d (%s)\n", ret);
    
    printf ("FTDI: Clock divide by 5: ");
-   spi->CDIV5 ? printf ("on\n") : printf ("off\n");
-   
-   /* set port direction and idle values */
-   level = (spi->CPOL      ? SCLK : 0) |           /* set port idle values */
-           (spi->MOSI_IDLE ? MOSI : 0) | 
-           CS;
-   io = 0x0B;                                     /* GPIOL[3-0]: DC, CS: O, DI: I, DO: O, SK: O */
-   
-   ftdi_set_bits_low (ftdi, spi, 0xFF, level, io);
-   ftdi_set_bits_high (ftdi, spi, 0xFF, 0xFF, 0xFF);    /* high bits set to high, as outputs, by default */
-   
-   printf ("FTDI: Clock idle level: ");
-   spi->CPOL ? printf ("1\n") : printf ("0\n");
-   
+   spi->CDIV5 ? printf ("enabled\n") : printf ("disabled\n");
+
    buf[0] = TCK_DIVISOR;                           /* set clock divisor */
    buf[1] = GETBYTE (spi->CDIV, 0); 
    buf[2] = GETBYTE (spi->CDIV, 1);
@@ -92,7 +80,7 @@ struct spi_context *spi_init (struct ftdi_context *ftdi,
       ftdi_exit (ftdi, "ERROR: Unable to set clock divisor: %d (%s)\n", ret);
 
    spi_print_clk_frequency (spi);
-   
+
    /* AN_114 note */
    usleep (20000);
    
@@ -113,6 +101,17 @@ struct spi_context *spi_init (struct ftdi_context *ftdi,
    printf ("FTDI: SPI loopback: ");
    spi->LOOPBACK_ON ? printf ("enabled\n") : printf ("disabled\n");
    
+   /* set port direction and idle values */
+   level = (spi->CPOL      ? SCLK : 0) |           /* set port idle values */
+           (spi->MOSI_IDLE ? MOSI : 0) | 
+           CS;
+   io = 0x0B;                                     /* GPIOL[3-0]: DC, CS: O, DI: I, DO: O, SK: O */
+   
+   ftdi_set_bits_low (ftdi, spi, 0xFF, level, io);
+   ftdi_set_bits_high (ftdi, spi, 0xFF, 0xFF, 0xFF);    /* high bits set to high, as outputs, by default */
+   
+   printf ("FTDI: Clock idle level: %d, MOSI idle level: %d\n", spi->CPOL, spi->MOSI_IDLE);
+         
    /* AN_114 note */
    usleep (30000);
    
@@ -133,12 +132,14 @@ void spi_open (struct ftdi_context *ftdi, struct spi_context *spi)
    
    level = (spi->MOSI_IDLE ? MOSI : 0);       /* set MOSI idle value, CS=0 */
    if (!spi->CPHA)                            /* set clock idle polarity */
-      level |= spi->CPOL  ? SCLK : 0;
-   else
-      level |= !spi->CPOL ? SCLK : 0;         /* workaround to get SPI mode 1, 3 working (invert clock polarity before writing data) */
-   
+      level |= (spi->CPOL  ? SCLK : 0);       /* AN_108: clock out on -ve (mode 0) requires SCLK=0, clock out on +ve (mode 2) requires SCLK=1 */
+   else                                       /* workaround to get SPI mode 1, 3 working (invert clock polarity before writing data) */
+      level |= (!spi->CPOL ? SCLK : 0);       /* AN_108: clock out on +ve (mode 2) requires SCLK=1, clock out on -ve (mode 3) requires SCLK=0 */      
+      
    ftdi_set_bits_low (ftdi, spi, CS|SCLK|MOSI, level, CS|SCLK|MOSI);
 
+   DEBUG_PRINT ("DEBUG: [SPI] Asserting CS#\n");
+   
    return;
 }
 
@@ -157,6 +158,8 @@ void spi_close (struct ftdi_context *ftdi, struct spi_context *spi)
            CS;                              /* set port idle values */
            
    ftdi_set_bits_low (ftdi, spi, CS|SCLK|MOSI, level, CS|SCLK|MOSI);
+   
+   DEBUG_PRINT ("DEBUG: [SPI] De-asserting CS#\n\n");
    
    return;
 }
@@ -189,7 +192,7 @@ int spi_write_from_file (struct ftdi_context *ftdi, struct spi_context *spi, FIL
       /* build header */
       buf[0] = MPSSE_DO_WRITE | (spi->WRITE_LSB_FIRST ? MPSSE_LSB : 0);
       /* set spi mode according to AN_108 */
-      if (SPIMODE (spi) == 0 || SPIMODE (spi) == 3)      /* mode 0 or mode 3 */
+      if (SPIMODE (spi) == 0 || SPIMODE (spi) == 3)      /* mode 0 or mode 3 (clock out on -ve) */
          buf[0] |= MPSSE_WRITE_NEG;
       buf[1] = GETBYTE (buf_size - 1, 0);         /* length (low byte) */
       buf[2] = GETBYTE (buf_size - 1, 1);         /* length (high byte) */
@@ -247,7 +250,7 @@ int spi_read_to_file (struct ftdi_context *ftdi, struct spi_context *spi, FILE *
       
       buf[0] = MPSSE_DO_READ | (spi->READ_LSB_FIRST ? MPSSE_LSB : 0);
       /* set spi mode according to AN_108 */
-      if (SPIMODE (spi) == 1 || SPIMODE (spi) == 2)      /* mode 1 or mode 2 */
+      if (SPIMODE (spi) == 1 || SPIMODE (spi) == 2)      /* mode 1 or mode 2 (clock out on +ve) */
          buf[0] |= MPSSE_READ_NEG;
       buf[1] = GETBYTE (buf_size - 1, 0);         /* length (low byte) */
       buf[2] = GETBYTE (buf_size - 1, 1);         /* length (high byte) */
@@ -286,20 +289,24 @@ int spi_read_to_file (struct ftdi_context *ftdi, struct spi_context *spi, FILE *
 void spi_write (struct ftdi_context *ftdi, struct spi_context *spi, byte *data, int size)
 {
    byte buf[3];
-   int buf_size;
+   byte *curr_data;
+   int buf_size, rem_size;
    int ret;
    
-   while (size > 0)
+   rem_size = size;
+   curr_data = data;
+   
+   while (rem_size > 0)
    {
-      if (size > MAX_SPI_BUF_LENGTH)
+      if (rem_size > MAX_SPI_BUF_LENGTH)
          buf_size = MAX_SPI_BUF_LENGTH;
       else
-         buf_size = size;
+         buf_size = rem_size;
       
       /* build header */
       buf[0] = MPSSE_DO_WRITE | (spi->WRITE_LSB_FIRST ? MPSSE_LSB : 0);
       /* set spi mode according to AN_108 */
-      if (SPIMODE (spi) == 0 || SPIMODE (spi) == 3)      /* mode 0 or mode 3 */
+      if (SPIMODE (spi) == 0 || SPIMODE (spi) == 3)      /* mode 0 or mode 3 (clock out on -ve) */
          buf[0] |= MPSSE_WRITE_NEG;
       buf[1] = GETBYTE (buf_size - 1, 0);         /* length (low byte) */
       buf[2] = GETBYTE (buf_size - 1, 1);         /* length (high byte) */
@@ -308,13 +315,21 @@ void spi_write (struct ftdi_context *ftdi, struct spi_context *spi, byte *data, 
       if ((ret = ftdi_write_data_and_wait (ftdi, buf, 3)) < 0)
          ftdi_exit (ftdi, "ERROR: Unable to send SPI data: %d (%s)\n", ret);
       /* write out spi data */
-      if ((ret = ftdi_write_data_and_wait (ftdi, data, buf_size)) < 0)
+      if ((ret = ftdi_write_data_and_wait (ftdi, curr_data, buf_size)) < 0)
          ftdi_exit (ftdi, "ERROR: Unable to send SPI data: %d (%s)\n", ret);
-      
-      size -= buf_size;
-      data += buf_size;
+           
+      rem_size -= buf_size;
+      curr_data += buf_size;
    }
    
+#ifdef DEBUG
+   int i;
+   DEBUG_PRINT ("DEBUG: [SPI] Sending ");
+   for (i = 0; i < size; i++)
+      DEBUG_PRINT ("%.2X ", data[i]);
+   DEBUG_PRINT ("\n");
+#endif
+  
    return;
 }
 
@@ -329,19 +344,23 @@ void spi_write (struct ftdi_context *ftdi, struct spi_context *spi, byte *data, 
 void spi_read (struct ftdi_context *ftdi, struct spi_context *spi, byte *data, int size)
 {
    byte buf[3];
-   int buf_size;
+   byte *curr_data;
+   int buf_size, rem_size;
    int ret;
    
-   while (size > 0)
+   rem_size = size;
+   curr_data = data;
+   
+   while (rem_size > 0)
    {
-      if (size > MAX_SPI_BUF_LENGTH)
+      if (rem_size > MAX_SPI_BUF_LENGTH)
          buf_size = MAX_SPI_BUF_LENGTH;
       else
-         buf_size = size;
+         buf_size = rem_size;
       
       buf[0] = MPSSE_DO_READ | (spi->READ_LSB_FIRST ? MPSSE_LSB : 0);
       /* set spi mode according to AN_108 */
-      if (SPIMODE (spi) == 1 || SPIMODE (spi) == 2)      /* mode 1 or mode 2 */
+      if (SPIMODE (spi) == 1 || SPIMODE (spi) == 2)      /* mode 1 or mode 2 (clock out on +ve) */
          buf[0] |= MPSSE_READ_NEG;
       buf[1] = GETBYTE (buf_size - 1, 0);         /* length (low byte) */
       buf[2] = GETBYTE (buf_size - 1, 1);         /* length (high byte) */
@@ -351,12 +370,20 @@ void spi_read (struct ftdi_context *ftdi, struct spi_context *spi, byte *data, i
          ftdi_exit (ftdi, "ERROR: Unable to send SPI data: %d (%s)\n", ret);
 
       /* read data */
-      if ((ret = ftdi_read_data_and_wait (ftdi, data, buf_size)) < 0)
+      if ((ret = ftdi_read_data_and_wait (ftdi, curr_data, buf_size)) < 0)
             ftdi_exit (ftdi, "ERROR: Unable to read SPI data: %d (%s)\n", ret);
          
-      size -= buf_size;
-      data += buf_size;
+      rem_size -= buf_size;
+      curr_data += buf_size;
    }
+   
+#ifdef DEBUG
+   int i;
+   DEBUG_PRINT ("DEBUG: [SPI] Receiving ");
+   for (i = 0; i < size; i++)
+      DEBUG_PRINT ("%.2X ", data[i]);
+   DEBUG_PRINT ("\n");
+#endif
  
    return;
 }
